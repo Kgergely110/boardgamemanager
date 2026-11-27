@@ -88,6 +88,11 @@ The backend applies pending migrations and regenerates Prisma Client before
 starting the API. Manual `npm run dev` starts also regenerate Prisma Client
 from the current schema.
 
+The Docker workflow builds separate development images for `backend` and
+`frontend`. On pushes to `main` and version tags, it publishes them to
+`ghcr.io/kgergely110/boardgamemanager/backend` and
+`ghcr.io/kgergely110/boardgamemanager/frontend`, respectively.
+
 ## Database Schema Highlights
 
 ### Core Models
