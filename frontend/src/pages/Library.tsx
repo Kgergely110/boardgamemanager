@@ -1,0 +1,881 @@
+import { FormEvent, useEffect, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Bookcase } from "../components/Bookcase";
+import { DevelopmentUserMenu } from "../components/DevelopmentUserMenu";
+import { LibraryIcon, LibraryMark } from "../components/LibraryIcon";
+import { ThemePicker } from "../components/ThemePicker";
+import { api, getErrorMessage, setAuthToken } from "../lib/api";
+import { matchesGameSearch } from "../lib/gameSearch";
+import { DeletedGameMatch, Game, GameArrangementItem, Player, Shelf, Tag } from "../types";
+
+interface LibraryProps {
+  player: Player;
+  onLogout: () => void
+}
+
+interface PendingGameCreation {
+  body: Record<string, string | number | null | undefined>;
+  imageFile: File | null;
+}
+
+const shelfTypes: Record<string, string> = {
+  shelf: "Bookcase",
+  cupboard: "Cupboard",
+  desk: "Desk",
+  cabinet: "Cabinet",
+  other: "Other",
+};
+
+function optionalNumber(value: string): number | undefined {
+  return value.trim() ? Number(value) : undefined;
+}
+
+function isGameOrientation(value: string): value is Game["orientation"] {
+  return value === "vertical" || value === "horizontal" || value === "flat" || value === "stacked";
+}
+
+export function Library({ player, onLogout }: LibraryProps) {
+  const [shelves, setShelves] = useState<Shelf[]>([]);
+  const [games, setGames] = useState<Game[]>([]);
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [selectedShelfId, setSelectedShelfId] = useState("all");
+  const [containersExpanded, setContainersExpanded] = useState(false);
+  const [query, setQuery] = useState("");
+  const [loadingShelves, setLoadingShelves] = useState(true);
+  const [loadingGames, setLoadingGames] = useState(true);
+  const [shelfFormOpen, setShelfFormOpen] = useState(false);
+  const [gameFormOpen, setGameFormOpen] = useState(false);
+  const [editingShelf, setEditingShelf] = useState<Shelf | null>(null);
+  const [editingGame, setEditingGame] = useState<Game | null>(null);
+  const [gameFormShelfId, setGameFormShelfId] = useState("");
+  const [gameFormShelfNumber, setGameFormShelfNumber] = useState(1);
+  const [gameOrientation, setGameOrientation] = useState<Game["orientation"]>("vertical");
+  const [gameStackedOnId, setGameStackedOnId] = useState("");
+  const [catalogRevision, setCatalogRevision] = useState(0);
+  const [containerMenuOpen, setContainerMenuOpen] = useState(false);
+  const [hoveredGameId, setHoveredGameId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<
+    { kind: "game"; game: Game } | { kind: "shelf"; shelf: Shelf } | null
+  >(null);
+  const [deletedGameMatches, setDeletedGameMatches] = useState<DeletedGameMatch[]>([]);
+  const [deletedMatchesTruncated, setDeletedMatchesTruncated] = useState(false);
+  const [pendingGameCreation, setPendingGameCreation] = useState<PendingGameCreation | null>(null);
+  const [restoringGame, setRestoringGame] = useState(false);
+  const [arrangingGames, setArrangingGames] = useState(false);
+  const [arrangementSaving, setArrangementSaving] = useState(false);
+  const [deletingGameId, setDeletingGameId] = useState<string | null>(null);
+  const [fallingGameIds, setFallingGameIds] = useState<Set<string>>(() => new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!pendingDelete) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && !isDeleting) setPendingDelete(null);
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [pendingDelete, isDeleting]);
+
+  useEffect(() => {
+    if (!pendingGameCreation) return;
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape" && !restoringGame) {
+        setPendingGameCreation(null);
+        setDeletedGameMatches([]);
+        setDeletedMatchesTruncated(false);
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [pendingGameCreation, restoringGame]);
+
+  useEffect(() => {
+    let active = true;
+    api.get<{ data: Shelf[] }>("/shelves")
+      .then(({ data }) => {
+        if (active) setShelves(data.data);
+      })
+      .catch((requestError: unknown) => {
+        if (active) setError(getErrorMessage(requestError));
+      })
+      .finally(() => {
+        if (active) setLoadingShelves(false);
+      });
+    return () => { active = false; };
+  }, [catalogRevision]);
+
+  useEffect(() => {
+    let active = true;
+    api.get<{ data: Tag[] }>("/tags")
+      .then(({ data }) => {
+        if (active) setTags(data.data);
+      })
+      .catch((requestError: unknown) => {
+        if (active) setError(getErrorMessage(requestError));
+      });
+    return () => { active = false; };
+  }, [catalogRevision]);
+
+  useEffect(() => {
+    let active = true;
+    const timer = window.setTimeout(() => {
+      setLoadingGames(true);
+      api.get<{ data: Game[] }>("/games")
+        .then(({ data }) => {
+          if (active) setGames(data.data);
+        })
+        .catch((requestError: unknown) => {
+          if (active) setError(getErrorMessage(requestError));
+        })
+        .finally(() => {
+          if (active) setLoadingGames(false);
+        });
+    }, 180);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [catalogRevision]);
+
+  async function saveShelf(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setError("");
+    const body = {
+      name: String(form.get("name") ?? ""),
+      type: String(form.get("type") ?? "shelf"),
+      color: String(form.get("color") ?? ""),
+      cabinetColor: String(form.get("cabinetColor") ?? ""),
+      shelfCount: Number(form.get("shelfCount")),
+      width: optionalNumber(String(form.get("width") ?? "")),
+      height: optionalNumber(String(form.get("height") ?? "")),
+      depth: optionalNumber(String(form.get("depth") ?? "")),
+      description: String(form.get("description") ?? ""),
+    };
+    try {
+      const { data } = editingShelf
+        ? await api.patch<{ data: Shelf }>(`/shelves/${editingShelf.id}`, body)
+        : await api.post<{ data: Shelf }>("/shelves", body);
+      if (editingShelf) {
+        setShelves((current) => current.map((shelf) => shelf.id === data.data.id ? data.data : shelf));
+        setNotice(`“${data.data.name}” has been updated.`);
+      } else {
+        setShelves((current) => [...current, data.data]);
+        setSelectedShelfId(data.data.id);
+        setNotice(`“${data.data.name}” is ready for its first games.`);
+      }
+      setEditingShelf(null);
+      setShelfFormOpen(false);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    }
+  }
+
+  async function submitGame(
+    body: PendingGameCreation["body"],
+    imageFile: File | null,
+    deletedGameId?: string,
+  ) {
+    setError("");
+    const { data } = deletedGameId
+      ? await api.post<{ data: Game }>("/games/restore", { ...body, deletedGameId })
+      : editingGame
+        ? await api.patch<{ data: Game }>(`/games/${editingGame.id}`, body)
+        : await api.post<{ data: Game }>("/games", body);
+    let savedGame = data.data;
+    let imageUploadError = "";
+    if (imageFile) {
+      const upload = new FormData();
+      upload.append("image", imageFile);
+      try {
+        const result = await api.post<{ data: Game }>(`/games/${savedGame.id}/image`, upload);
+        savedGame = result.data.data;
+      } catch (uploadError) {
+        imageUploadError = getErrorMessage(uploadError);
+      }
+    }
+    setCatalogRevision((revision) => revision + 1);
+    setSelectedShelfId(savedGame.shelf.id);
+    setGameFormOpen(false);
+    setPendingGameCreation(null);
+    setDeletedGameMatches([]);
+    setDeletedMatchesTruncated(false);
+    if (imageUploadError) {
+      setError(`“${savedGame.name}” was saved, but its image could not be uploaded: ${imageUploadError}`);
+    } else {
+      setNotice(deletedGameId
+        ? `“${savedGame.name}” is restored with its logs, documents, tags, and other history.`
+        : editingGame
+          ? `“${savedGame.name}” has been updated.`
+          : `“${savedGame.name}” has found its place.`);
+    }
+    setEditingGame(null);
+  }
+
+  async function saveGame(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setError("");
+    const imageEntry = form.get("imageFile");
+    const imageFile = imageEntry instanceof File && imageEntry.size > 0 ? imageEntry : null;
+    const imageUrl = String(form.get("imageUrl") ?? "").trim();
+    if (imageFile && imageUrl) {
+      setError("Choose either an image file or an image URL, not both.");
+      return;
+    }
+
+    const body: PendingGameCreation["body"] = {
+      name: String(form.get("name") ?? ""),
+      maker: String(form.get("maker") ?? ""),
+      shelfId: String(form.get("shelfId") ?? ""),
+      shelfNumber: Number(form.get("shelfNumber")),
+      orientation: gameOrientation,
+      stackedOnId: gameOrientation === "stacked" ? gameStackedOnId || null : null,
+      releaseYear: optionalNumber(String(form.get("releaseYear") ?? "")),
+      minPlayers: optionalNumber(String(form.get("minPlayers") ?? "")),
+      maxPlayers: optionalNumber(String(form.get("maxPlayers") ?? "")),
+      playTime: optionalNumber(String(form.get("playTime") ?? "")),
+      ageLimit: optionalNumber(String(form.get("ageLimit") ?? "")),
+    };
+    if (imageUrl) body.imageUrl = imageUrl;
+    else if (editingGame && !imageFile) body.imageUrl = null;
+
+    try {
+      if (!editingGame) {
+        const params = new URLSearchParams({ name: String(body.name ?? "") });
+        const { data } = await api.get<{
+          data: DeletedGameMatch[];
+          truncated: boolean;
+        }>(`/games/deleted-matches?${params.toString()}`);
+        if (data.data.length > 0) {
+          setPendingGameCreation({ body, imageFile });
+          setDeletedGameMatches(data.data);
+          setDeletedMatchesTruncated(data.truncated);
+          return;
+        }
+      }
+      await submitGame(body, imageFile);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    }
+  }
+
+  async function chooseDeletedGame(deletedGameId?: string) {
+    if (!pendingGameCreation) return;
+    setRestoringGame(true);
+    try {
+      await submitGame(pendingGameCreation.body, pendingGameCreation.imageFile, deletedGameId);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setRestoringGame(false);
+    }
+  }
+
+  async function saveArrangement(
+    shelfId: string,
+    shelfNumber: number,
+    items: GameArrangementItem[],
+  ) {
+    if (arrangementSaving) return;
+    const previousGames = games;
+    const updates = new Map(items.map((item) => [item.id, item]));
+    setArrangementSaving(true);
+    setGames((current) => current.map((game) => {
+      const item = updates.get(game.id);
+      if (!item) return game;
+      return {
+        ...game,
+        position: item.order,
+        stackedOnId: item.stackedOnId,
+        orientation: item.stackedOnId
+          ? "stacked"
+          : item.orientation ?? (game.orientation === "stacked" ? "vertical" : game.orientation),
+      };
+    }));
+    setError("");
+    try {
+      const { data } = await api.put<{
+        data: { id: string; position: number; stackedOnId: string | null; orientation: Game["orientation"] }[];
+      }>("/games/arrangement", { shelfId, shelfNumber, items });
+      const saved = new Map(data.data.map((item) => [item.id, item]));
+      setGames((current) => current.map((game) => {
+        const item = saved.get(game.id);
+        return item
+          ? { ...game, position: item.position, stackedOnId: item.stackedOnId, orientation: item.orientation }
+          : game;
+      }));
+      setNotice("The shelf arrangement has been saved.");
+    } catch (requestError) {
+      setGames(previousGames);
+      setError(getErrorMessage(requestError));
+    } finally {
+      setArrangementSaving(false);
+    }
+  }
+
+  function requestDeleteShelf(shelf: Shelf) {
+    setPendingDelete({ kind: "shelf", shelf });
+  }
+
+  function requestDeleteGame(game: Game) {
+    setPendingDelete({ kind: "game", game });
+  }
+
+  async function confirmDelete() {
+    if (!pendingDelete) return;
+    const target = pendingDelete;
+    setIsDeleting(true);
+    setError("");
+    try {
+      if (target.kind === "shelf") {
+        await api.delete(`/shelves/${target.shelf.id}`);
+        setShelves((current) => current.filter((item) => item.id !== target.shelf.id));
+        setSelectedShelfId("all");
+        setNotice(`“${target.shelf.name}” has been removed.`);
+      } else {
+        setPendingDelete(null);
+        setDeletingGameId(target.game.id);
+        await new Promise((resolve) => window.setTimeout(resolve, 460));
+        const { data } = await api.delete<{
+          data: {
+            fallingGameIds: string[];
+            games: { id: string; position: number; stackedOnId: string | null; orientation: Game["orientation"] }[];
+          };
+        }>(`/games/${target.game.id}`);
+        const updatedGames = new Map(data.data.games.map((game) => [game.id, game]));
+        const fallingIds = new Set(data.data.fallingGameIds);
+        setGames((current) => current
+          .filter((game) => game.id !== target.game.id)
+          .map((game) => {
+            const updated = updatedGames.get(game.id);
+            return updated
+              ? { ...game, position: updated.position, stackedOnId: updated.stackedOnId, orientation: updated.orientation }
+              : game;
+          }));
+        setFallingGameIds(fallingIds);
+        window.setTimeout(() => setFallingGameIds(new Set()), 650);
+        setCatalogRevision((revision) => revision + 1);
+        setNotice(`“${target.game.name}” has been archived. Its history is safe.`);
+      }
+      setPendingDelete(null);
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+      setPendingDelete(null);
+    } finally {
+      setDeletingGameId(null);
+      setIsDeleting(false);
+    }
+  }
+
+  function logout() {
+    setAuthToken(null);
+    onLogout();
+  }
+
+  function openNewShelf() {
+    setEditingShelf(null);
+    setShelfFormOpen(true);
+  }
+
+  function openNewGame() {
+    setEditingGame(null);
+    setGameFormShelfId(selectedShelfId === "all" ? shelves[0]?.id ?? "" : selectedShelfId);
+    setGameFormShelfNumber(1);
+    setGameOrientation("vertical");
+    setGameStackedOnId("");
+    setGameFormOpen(true);
+  }
+
+  function openEditGame(game: Game) {
+    setEditingGame(game);
+    setGameFormShelfId(game.shelfId);
+    setGameFormShelfNumber(game.shelfNumber);
+    setGameOrientation(game.orientation);
+    setGameStackedOnId(game.stackedOnId ?? "");
+    setGameFormOpen(true);
+  }
+
+  const selectedShelf = shelves.find((shelf) => shelf.id === selectedShelfId);
+  const visibleShelves = selectedShelf ? [selectedShelf] : shelves;
+  const visibleGames = selectedShelf
+    ? games.filter((game) => game.shelfId === selectedShelf.id)
+    : games;
+  const stackTargets = games.filter(
+    (game) =>
+      game.id !== editingGame?.id &&
+      game.shelfId === gameFormShelfId &&
+      game.shelfNumber === gameFormShelfNumber &&
+      game.stackedOnId === null,
+  );
+  const matchingGameCount = visibleGames.filter((game) =>
+    query.trim() ? matchesGameSearch(game, query.trim()) : true,
+  ).length;
+
+  return (
+    <div className="library-shell">
+      <aside className="library-rail">
+        <Link className="brand-mark" to="/" aria-label="Board Game Library home">
+          <LibraryMark className="brand-mark__symbol" />
+          <span className="brand-mark__name">The Game<br />Library</span>
+        </Link>
+
+        <div className="rail-divider" />
+        <span className="rail-label">YOUR COLLECTION</span>
+        <nav className="shelf-nav" aria-label="Browse containers">
+          <div className="shelf-nav__branch-wrap">
+            <div className="shelf-nav__branch">
+              <button
+                aria-pressed={selectedShelfId === "all"}
+                className={`shelf-nav__item ${selectedShelfId === "all" ? "is-selected" : ""}`}
+                onClick={() => {
+                  setSelectedShelfId("all");
+                  setContainerMenuOpen(false);
+                }}
+              >
+                <span className="shelf-nav__glyph"><LibraryIcon name="collection" /></span>
+                <span>All games</span>
+                <span className="shelf-nav__count">{shelves.reduce((n, shelf) => n + shelf._count.games, 0)}</span>
+              </button>
+              <button
+                aria-expanded={containersExpanded}
+                aria-label={`${containersExpanded ? "Hide" : "Show"} containers`}
+                className="shelf-nav__toggle"
+                onClick={() => setContainersExpanded((expanded) => !expanded)}
+                type="button"
+              >
+                <svg aria-hidden="true" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4" /></svg>
+              </button>
+            </div>
+            {containersExpanded && (
+              <div className="shelf-nav__children" id="container-submenu" role="group" aria-label="Containers">
+                {shelves.map((shelf) => (
+                  <button
+                    aria-pressed={selectedShelfId === shelf.id}
+                    className={`shelf-nav__item shelf-nav__item--child ${selectedShelfId === shelf.id ? "is-selected" : ""}`}
+                    key={shelf.id}
+                    onClick={() => {
+                      setSelectedShelfId(shelf.id);
+                      setContainerMenuOpen(false);
+                    }}
+                  >
+                    <span className="shelf-nav__glyph" style={{ color: shelf.color || undefined }}>
+                      <LibraryIcon name="shelf" />
+                    </span>
+                    <span className="shelf-nav__text">{shelf.name}</span>
+                    <span className="shelf-nav__count">{shelf._count.games}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          {!loadingShelves && shelves.length === 0 && (
+            <p className="rail-empty">Your first shelf is waiting to be named.</p>
+          )}
+          <button className="rail-add" onClick={openNewShelf}>
+            <span className="rail-add__icon" aria-hidden="true">＋</span>
+            Add a container
+          </button>
+        </nav>
+        <div className="rail-utility">
+          <span className="rail-label">GAME NIGHT</span>
+          <Link className="shelf-nav__item" to="/lets-play">
+            <span className="shelf-nav__glyph"><LibraryIcon name="play" /></span>
+            <span>Let’s play</span>
+          </Link>
+          <Link className="shelf-nav__item play-log-nav-link" to="/logs">
+            <span className="shelf-nav__glyph"><LibraryIcon name="chronicle" /></span>
+            <span>Game logs</span>
+          </Link>
+        </div>
+        <div className="rail-utility">
+          <span className="rail-label">REFERENCE</span>
+          <Link className="shelf-nav__item" to="/wiki">
+            <span className="shelf-nav__glyph"><LibraryIcon name="wiki" /></span>
+            <span>Game wiki</span>
+          </Link>
+          <Link className="shelf-nav__item" to="/ambience">
+            <span className="shelf-nav__glyph"><LibraryIcon name="ambience" /></span>
+            <span>Ambience</span>
+          </Link>
+        </div>
+        {import.meta.env.DEV && player.isAdmin && <DevelopmentUserMenu player={player} />}
+
+        <div className="rail-bottom">
+          <span className="rail-bottom__avatar">{player.fullName.slice(0, 1).toUpperCase()}</span>
+          <span className="rail-bottom__identity">
+            <strong>{player.fullName}</strong>
+            <small>Keeper of the collection</small>
+          </span>
+          <button className="logout-button" onClick={logout} title="Sign out" aria-label="Sign out">↗</button>
+        </div>
+      </aside>
+
+      <main className="library-main">
+        <header className="library-topbar">
+          <div className="breadcrumbs"><span>COLLECTION</span><b>/</b><strong>THE STACKS</strong></div>
+          <ThemePicker />
+        </header>
+
+        <section className="library-heading">
+          <div>
+            <span className="eyebrow">A PLACE FOR EVERY ADVENTURE</span>
+            <h1>{selectedShelf ? selectedShelf.name : "The Stacks"}</h1>
+            <p>
+              {selectedShelf
+                ? `${shelfTypes[selectedShelf.type] ?? selectedShelf.type} · ${selectedShelf.shelfCount} ${selectedShelf.shelfCount === 1 ? "level" : "levels"}`
+                : "A living catalogue of the games around your table."}
+            </p>
+          </div>
+          <div className="heading-actions">
+            {selectedShelf && (
+              <div className="container-manage">
+                <button
+                  aria-expanded={containerMenuOpen}
+                  className="button button--quiet"
+                  onClick={() => setContainerMenuOpen((open) => !open)}
+                >
+                  <span aria-hidden="true">⋯</span> Manage
+                </button>
+                {containerMenuOpen && (
+                  <div className="container-manage__menu">
+                    <button
+                      onClick={() => {
+                        setEditingShelf(selectedShelf);
+                        setShelfFormOpen(true);
+                        setContainerMenuOpen(false);
+                      }}
+                    >
+                      Edit container
+                    </button>
+                    <button
+                      className="container-manage__delete"
+                      onClick={() => {
+                        setContainerMenuOpen(false);
+                        requestDeleteShelf(selectedShelf);
+                      }}
+                    >
+                      Delete container
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+            <button
+              className={`button ${arrangingGames ? "button--primary" : "button--quiet"}`}
+              disabled={loadingGames || arrangementSaving || games.length === 0}
+              onClick={() => setArrangingGames((arranging) => !arranging)}
+              type="button"
+            >
+              {arrangingGames ? "Finish arranging" : "Arrange games"}
+            </button>
+            <button className="button button--quiet" onClick={openNewShelf}>＋ Container</button>
+            <button
+              className="button button--primary"
+              disabled={shelves.length === 0}
+              onClick={openNewGame}
+            >
+              <span>＋</span> Add a game
+            </button>
+          </div>
+        </section>
+
+        {error && <div className="notice notice--error" role="alert">{error}<button onClick={() => setError("")}>Dismiss</button></div>}
+        {notice && <div className="notice" role="status">{notice}<button onClick={() => setNotice("")}>Dismiss</button></div>}
+
+        {shelfFormOpen && (
+          <form className="inline-form shelf-form" key={editingShelf?.id ?? "new-container"} onSubmit={saveShelf}>
+            <div className="form-heading">
+              <span className="eyebrow">{editingShelf ? "REFINE THE COLLECTION" : "MAKE ROOM"}</span>
+              <h2>{editingShelf ? "Edit container" : "Add a container"}</h2>
+            </div>
+            <label>Name<input name="name" maxLength={80} defaultValue={editingShelf?.name} placeholder="e.g. The old walnut bookcase" required /></label>
+            <label>Kind
+              <select name="type" defaultValue={editingShelf?.type ?? "shelf"}>
+                <option value="shelf">Bookcase</option><option value="cupboard">Cupboard</option>
+                <option value="desk">Desk</option><option value="cabinet">Cabinet</option><option value="other">Other</option>
+              </select>
+            </label>
+            <label>Levels<input name="shelfCount" type="number" min="1" max="100" defaultValue={editingShelf?.shelfCount ?? 4} required /></label>
+            <label>Shelf accent<input name="color" type="color" defaultValue={editingShelf?.color ?? "#a66b42"} /></label>
+            <label>Cabinet color<input name="cabinetColor" type="color" defaultValue={editingShelf?.cabinetColor ?? "#795638"} /></label>
+            <label>Width (cm)<input name="width" type="number" min="1" defaultValue={editingShelf?.width ?? ""} /></label>
+            <label>Height (cm)<input name="height" type="number" min="1" defaultValue={editingShelf?.height ?? ""} /></label>
+            <label>Depth (cm)<input name="depth" type="number" min="1" defaultValue={editingShelf?.depth ?? ""} /></label>
+            <label className="shelf-description">Description<input name="description" maxLength={500} defaultValue={editingShelf?.description ?? ""} /></label>
+            <div className="form-actions"><button className="button button--quiet" type="button" onClick={() => { setShelfFormOpen(false); setEditingShelf(null); }}>Cancel</button><button className="button button--primary">{editingShelf ? "Save container" : "Create container"}</button></div>
+          </form>
+        )}
+
+        {gameFormOpen && (
+          <form className="inline-form game-form" key={editingGame?.id ?? "new-game"} onSubmit={saveGame}>
+            <div className="form-heading">
+              <span className="eyebrow">{editingGame ? "UPDATE ITS CATALOGUE ENTRY" : "GIVE IT A HOME"}</span>
+              <h2>{editingGame ? "Edit board game" : "Add a board game"}</h2>
+            </div>
+            <div className="form-grid">
+              <label>Game title<input name="name" maxLength={120} defaultValue={editingGame?.name} required placeholder="The name on the box" /></label>
+              <label>Publisher or designer<input name="maker" maxLength={120} defaultValue={editingGame?.maker} required /></label>
+              <label>Container
+                <select
+                  name="shelfId"
+                  onChange={(event) => {
+                    setGameFormShelfId(event.target.value);
+                    setGameStackedOnId("");
+                  }}
+                  required
+                  value={gameFormShelfId}
+                >
+                  {shelves.map((shelf) => <option key={shelf.id} value={shelf.id}>{shelf.name}</option>)}
+                </select>
+              </label>
+              <label>Level<input
+                name="shelfNumber"
+                type="number"
+                min="1"
+                max={shelves.find((shelf) => shelf.id === gameFormShelfId)?.shelfCount ?? 100}
+                onChange={(event) => {
+                  setGameFormShelfNumber(Number(event.target.value));
+                  setGameStackedOnId("");
+                }}
+                value={gameFormShelfNumber}
+                required
+              /></label>
+              <label>Stored orientation
+                <select
+                  name="orientation"
+                  onChange={(event) => {
+                    if (isGameOrientation(event.target.value)) setGameOrientation(event.target.value);
+                  }}
+                  value={gameOrientation}
+                >
+                  <option value="vertical">Upright</option>
+                  <option value="horizontal">On its side</option>
+                  <option value="flat">Flat</option>
+                  <option value="stacked">Stacked on another game</option>
+                </select>
+              </label>
+              {gameOrientation === "stacked" && (
+                <label>Stack on top of
+                  <select
+                    name="stackedOnId"
+                    onChange={(event) => setGameStackedOnId(event.target.value)}
+                    required
+                    value={gameStackedOnId}
+                  >
+                    <option value="">Choose a game on this level</option>
+                    {stackTargets.map((game) => (
+                      <option key={game.id} value={game.id}>{game.name} · {game.maker}</option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <label>Year<input name="releaseYear" type="number" min="1800" max="2200" defaultValue={editingGame?.releaseYear ?? ""} /></label>
+              <label>Minimum players<input name="minPlayers" type="number" min="1" defaultValue={editingGame?.minPlayers ?? ""} /></label>
+              <label>Maximum players<input name="maxPlayers" type="number" min="1" defaultValue={editingGame?.maxPlayers ?? ""} /></label>
+              <label>Play time (minutes)<input name="playTime" type="number" min="1" defaultValue={editingGame?.playTime ?? ""} /></label>
+              <label>Age recommendation<input name="ageLimit" type="number" min="0" defaultValue={editingGame?.ageLimit ?? ""} /></label>
+              <label>Image URL<input name="imageUrl" type="url" defaultValue={editingGame?.imageUrl ?? ""} placeholder="https://…" /></label>
+              <label>Or upload a cover<input name="imageFile" type="file" accept="image/jpeg,image/png,image/webp" /></label>
+            </div>
+            <p className="upload-note">JPEG, PNG, or WebP · maximum 8 MB. Choose a URL or upload a file.</p>
+            <div className="form-actions"><button className="button button--quiet" type="button" onClick={() => { setGameFormOpen(false); setEditingGame(null); }}>Cancel</button><button className="button button--primary" disabled={restoringGame}>{editingGame ? "Save game" : "Place on the shelf"}</button></div>
+          </form>
+        )}
+
+        {arrangingGames && (
+          <p className="arrangement-hint" role="status">
+            Drop games in the gold markers to reorder, or onto another box to stack. Select any game for reliable placement, orientation, and stack controls. Changes save as you go.
+          </p>
+        )}
+
+        <section className="collection-tools">
+          <div className="collection-count">
+            <span className="collection-count__number">{loadingGames ? "—" : query.trim() ? matchingGameCount : games.length}</span>
+            <span>
+              {query.trim()
+                ? matchingGameCount === 1 ? "matching game" : "matching games"
+                : games.length === 1 ? "game in view" : "games in view"}
+            </span>
+          </div>
+          <label className="search-box">
+            <svg aria-hidden="true" className="search-box__icon" viewBox="0 0 24 24">
+              <circle cx="10.5" cy="10.5" r="6.5" />
+              <path d="m15.5 15.5 5 5" />
+            </svg>
+            <input
+              aria-label="Search games or publishers"
+              list="game-tag-search-suggestions"
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Find a game, publisher, or #tag..."
+              value={query}
+            />
+            <kbd>SEARCH</kbd>
+          </label>
+          <datalist id="game-tag-search-suggestions">
+            {tags.map((tag) => <option key={tag.id} value={`#${tag.name}`} />)}
+          </datalist>
+        </section>
+
+        <section className="game-section" aria-live="polite">
+          <div className="section-title">
+            <div>
+              <span className="eyebrow">{selectedShelf ? "ON THIS SHELF" : "READY WHEN YOU ARE"}</span>
+              <h2>{query.trim() ? "The full collection" : "In the collection"}</h2>
+              {query.trim() && <p className="section-title__subtitle">Matching games are highlighted; all games remain on their shelves.</p>}
+            </div>
+            <span className="section-title__rule" />
+          </div>
+
+          {loadingGames ? (
+            <div className="empty-state" role="status" aria-live="polite"><p>Turning the catalogue pages…</p></div>
+          ) : shelves.length > 0 && (visibleGames.length > 0 || !query) ? (
+            <div className={`bookcase-list ${selectedShelf ? "bookcase-list--single" : ""}`}>
+              {visibleShelves.map((shelf) => (
+                <Bookcase
+                  games={visibleGames.filter((game) => game.shelf.id === shelf.id)}
+                  hoveredGameId={hoveredGameId}
+                  key={shelf.id}
+                  onDeleteGame={requestDeleteGame}
+                  onEditGame={openEditGame}
+                  onGameHover={setHoveredGameId}
+                  onArrange={saveArrangement}
+                  onViewGame={(game) => navigate(`/games/${game.id}`, { state: { from: `${location.pathname}${location.search}` } })}
+                  query={query.trim()}
+                  shelf={shelf}
+                  arranging={arrangingGames}
+                  arrangementSaving={arrangementSaving}
+                  deletingGameId={deletingGameId}
+                  fallingGameIds={fallingGameIds}
+                />
+              ))}
+            </div>
+          ) : (
+            <div className="empty-state">
+              <LibraryIcon name="collection" className="empty-state__ornament" />
+              <h3>{query ? "No matching titles" : "Your shelves are waiting"}</h3>
+              <p>{query ? "Try another title or publisher." : "Create a container to give your games a home."}</p>
+              {!query && <button className="button button--quiet" onClick={openNewShelf}>＋ Create your first container</button>}
+            </div>
+          )}
+          {!loadingGames && visibleGames.length === 0 && shelves.length > 0 && !query && (
+            <div className="first-game-prompt">
+              <p>The cases are ready. Add a game to see it placed at its level.</p>
+              <button className="button button--quiet" onClick={openNewGame}>＋ Add the first game</button>
+            </div>
+          )}
+        </section>
+
+        <footer className="library-footer"><span>CATALOGUED WITH CARE</span></footer>
+      </main>
+      {pendingDelete && (
+        <div className="sweet-alert-backdrop">
+          <section
+            aria-describedby="delete-alert-description"
+            aria-labelledby="delete-alert-title"
+            aria-modal="true"
+            className="sweet-alert"
+            role="alertdialog"
+          >
+            <span className="sweet-alert__seal"><LibraryIcon name="shelf" /></span>
+            <span className="eyebrow">A MOMENT BEFORE THE SPELL</span>
+            <h2 id="delete-alert-title">
+              {pendingDelete.kind === "game" ? "Let this game go?" : "Remove this container?"}
+            </h2>
+            <p id="delete-alert-description">
+              {pendingDelete.kind === "game"
+                ? `“${pendingDelete.game.name}” will be archived. Its play logs, documents, tags, and image will be kept and can return if you add this game again.`
+                : `“${pendingDelete.shelf.name}” can only be removed when it is empty.`}
+            </p>
+            <div className="sweet-alert__actions">
+              <button
+                autoFocus
+                className="button button--quiet"
+                disabled={isDeleting}
+                onClick={() => setPendingDelete(null)}
+                type="button"
+              >
+                Keep it
+              </button>
+              <button
+                className="button sweet-alert__confirm"
+                disabled={isDeleting}
+                onClick={() => void confirmDelete()}
+                type="button"
+              >
+                {isDeleting ? "Archiving…" : pendingDelete.kind === "game" ? "Archive game" : "Remove"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+      {pendingGameCreation && (
+        <div className="sweet-alert-backdrop">
+          <section
+            aria-describedby="restore-alert-description"
+            aria-labelledby="restore-alert-title"
+            aria-modal="true"
+            className="sweet-alert restore-alert"
+            role="alertdialog"
+          >
+            <span className="sweet-alert__seal"><LibraryIcon name="collection" /></span>
+            <span className="eyebrow">A STORY ALREADY IN THE ARCHIVE</span>
+            <h2 id="restore-alert-title">Bring it back?</h2>
+            <p id="restore-alert-description">
+              A game with this title is archived. Restore it to bring back its play history, documents, and tags, or create a separate copy.
+            </p>
+            <div className="restore-match-list">
+              {deletedGameMatches.map((match) => (
+                <article className="restore-match" key={match.id}>
+                  <div>
+                    <strong>{match.name}</strong>
+                    <span>{match.maker}{match.releaseYear ? ` · ${match.releaseYear}` : ""}</span>
+                    <small>Archived {new Date(match.deletedAt).toLocaleDateString()}</small>
+                  </div>
+                  <button
+                    className="button button--primary"
+                    disabled={restoringGame}
+                    onClick={() => void chooseDeletedGame(match.id)}
+                    type="button"
+                  >
+                    {restoringGame ? "Restoring…" : "Restore this"}
+                  </button>
+                </article>
+              ))}
+            </div>
+            {deletedMatchesTruncated && (
+              <p className="restore-alert__note">More archived copies exist; the list shows the 20 most recently archived.</p>
+            )}
+            <div className="sweet-alert__actions restore-alert__actions">
+              <button
+                autoFocus
+                className="button button--quiet"
+                disabled={restoringGame}
+                onClick={() => {
+                  setPendingGameCreation(null);
+                  setDeletedGameMatches([]);
+                  setDeletedMatchesTruncated(false);
+                }}
+                type="button"
+              >
+                Back to form
+              </button>
+              <button
+                className="button sweet-alert__confirm"
+                disabled={restoringGame}
+                onClick={() => void chooseDeletedGame()}
+                type="button"
+              >
+                Create a separate game
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
+    </div>
+  );
+}
