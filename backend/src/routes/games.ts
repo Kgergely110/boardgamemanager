@@ -1,3 +1,4 @@
+import { Prisma } from "@prisma/client";
 import { Router, Request, Response, NextFunction } from "express";
 import multer from "multer";
 import { randomUUID } from "node:crypto";
@@ -7,15 +8,17 @@ import { z } from "zod";
 import prisma from "../lib/prisma.js";
 
 const router = Router();
+class WishlistItemAlreadyAcquiredError extends Error {}
+
 const getUploadDirectory = () =>
   resolve(process.env.UPLOAD_DIR || "./uploads");
-const gameIdSchema = z.string().uuid();
-const tagAssociationSchema = z.object({ tagId: z.string().uuid() });
-const createDocumentSchema = z.object({
+export const gameIdSchema = z.string().uuid();
+export const tagAssociationSchema = z.object({ tagId: z.string().uuid() });
+export const createDocumentSchema = z.object({
   title: z.string().trim().min(1).max(100),
   content: z.string().max(100_000),
 });
-const updateDocumentSchema = createDocumentSchema
+export const updateDocumentSchema = createDocumentSchema
   .partial()
   .refine((value) => Object.keys(value).length > 0, "Provide at least one document field");
 const imageExtensions: Record<string, string> = {
@@ -50,9 +53,15 @@ const gameFields = {
   imageUrl: imageUrlSchema.optional(),
 };
 
-const createGameSchema = z
-  .object(gameFields)
-  .superRefine(({ minPlayers, maxPlayers, orientation, stackedOnId }, context) => {
+function validateGameFields(
+  { minPlayers, maxPlayers, orientation, stackedOnId }: {
+    minPlayers?: number;
+    maxPlayers?: number;
+    orientation: "vertical" | "horizontal" | "flat" | "stacked";
+    stackedOnId?: string | null;
+  },
+  context: z.RefinementCtx,
+): void {
     if (
       minPlayers !== undefined &&
       maxPlayers !== undefined &&
@@ -78,19 +87,24 @@ const createGameSchema = z
         message: "Only stacked games can be placed on another game",
       });
     }
-  });
-const updateGameSchema = z
+}
+export const createGameSchema = z
+  .object({ ...gameFields, wishlistItemId: gameIdSchema.optional() })
+  .superRefine(validateGameFields);
+export const updateGameSchema = z
   .object({
     ...gameFields,
     imageUrl: imageUrlSchema.nullable().optional(),
   })
   .partial()
   .refine((value) => Object.keys(value).length > 0, "Provide at least one field");
-const restoreGameSchema = createGameSchema.and(z.object({ deletedGameId: gameIdSchema }));
-const deletedMatchQuerySchema = z.object({
+export const restoreGameSchema = z
+  .object({ ...gameFields, deletedGameId: gameIdSchema })
+  .superRefine(validateGameFields);
+export const deletedMatchQuerySchema = z.object({
   name: z.string().trim().min(1).max(120),
 });
-const arrangementSchema = z.object({
+export const arrangementSchema = z.object({
   shelfId: z.string().uuid(),
   shelfNumber: z.number().int().min(1).max(100),
   items: z.array(z.object({
@@ -158,14 +172,10 @@ function detectedImageExtension(buffer: Buffer): string | null {
   return null;
 }
 
-function validateGameQuery(query: Request["query"]) {
-  return z
-    .object({
-      q: z.string().trim().max(100).optional(),
-      shelfId: z.string().uuid().optional(),
-    })
-    .safeParse(query);
-}
+export const gameListQuerySchema = z.object({
+  q: z.string().trim().max(100).optional(),
+  shelfId: z.string().uuid().optional(),
+});
 
 async function findStackRoot(game: {
   id: string;
@@ -192,7 +202,7 @@ async function findStackRoot(game: {
 }
 
 router.get("/", async (req: Request, res: Response) => {
-  const query = validateGameQuery(req.query);
+  const query = gameListQuerySchema.safeParse(req.query);
   if (!query.success) {
     res.status(400).json({
       error: "Invalid search",
@@ -225,6 +235,113 @@ router.get("/", async (req: Request, res: Response) => {
   res.json({ data: games });
 });
 
+router.get("/collection-pulse", async (_req: Request, res: Response) => {
+  const windowDays = 90;
+  const cutoff = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
+  const [summaryRows, recentGames, restingGames, neverPlayedGames, tags] = await Promise.all([
+    prisma.$queryRaw<{
+      totalGames: number;
+      playedRecently: number;
+      neverPlayed: number;
+      restingGameCount: number;
+    }[]>(Prisma.sql`
+      SELECT COUNT(*)::int AS "totalGames",
+        COUNT(*) FILTER (WHERE activity."playCount" = 0)::int AS "neverPlayed",
+        COUNT(*) FILTER (
+          WHERE activity."lastPlayedAt" IS NOT NULL
+            AND activity."lastPlayedAt" < ${cutoff}
+        )::int AS "restingGameCount",
+        COUNT(*) FILTER (
+          WHERE activity."lastPlayedAt" >= ${cutoff}
+        )::int AS "playedRecently"
+      FROM "Game" g
+      LEFT JOIN "DeletedGame" dg ON dg."gameId" = g."id"
+      LEFT JOIN LATERAL (
+        SELECT COUNT(pl."id")::int AS "playCount", MAX(pl."playedAt") AS "lastPlayedAt"
+        FROM "PlayLog" pl
+        WHERE pl."gameId" = g."id"
+      ) activity ON true
+      WHERE dg."id" IS NULL
+    `),
+    prisma.$queryRaw<{
+      id: string;
+      name: string;
+      plays: number;
+    }[]>(Prisma.sql`
+      SELECT g."id", g."name", COUNT(pl."id")::int AS "plays"
+      FROM "Game" g
+      INNER JOIN "PlayLog" pl ON pl."gameId" = g."id" AND pl."playedAt" >= ${cutoff}
+      LEFT JOIN "DeletedGame" dg ON dg."gameId" = g."id"
+      WHERE dg."id" IS NULL
+      GROUP BY g."id", g."name"
+      ORDER BY "plays" DESC, g."name" ASC, g."id" ASC
+      LIMIT 5
+    `),
+    prisma.$queryRaw<{
+      id: string;
+      name: string;
+      lastPlayedAt: Date;
+    }[]>(Prisma.sql`
+      SELECT g."id", g."name", MAX(pl."playedAt") AS "lastPlayedAt"
+      FROM "Game" g
+      INNER JOIN "PlayLog" pl ON pl."gameId" = g."id"
+      LEFT JOIN "DeletedGame" dg ON dg."gameId" = g."id"
+      WHERE dg."id" IS NULL
+      GROUP BY g."id", g."name"
+      HAVING MAX(pl."playedAt") < ${cutoff}
+      ORDER BY "lastPlayedAt" ASC, g."name" ASC, g."id" ASC
+      LIMIT 5
+    `),
+    prisma.game.findMany({
+      where: {
+        deletedGame: { is: null },
+        playLogs: { none: {} },
+      },
+      orderBy: [{ name: "asc" }, { id: "asc" }],
+      take: 5,
+      select: { id: true, name: true },
+    }),
+    prisma.tag.findMany({
+      select: {
+        id: true,
+        name: true,
+        color: true,
+        _count: {
+          select: {
+            games: { where: { deletedGame: { is: null } } },
+          },
+        },
+      },
+    }),
+  ]);
+  const summary = summaryRows[0] ?? {
+    totalGames: 0,
+    playedRecently: 0,
+    neverPlayed: 0,
+    restingGameCount: 0,
+  };
+
+  res.json({
+    data: {
+      windowDays,
+      ...summary,
+      recentGames,
+      restingGames,
+      neverPlayedGames,
+      popularTags: tags
+        .map((tag) => ({
+          id: tag.id,
+          name: tag.name,
+          color: tag.color,
+          gameCount: tag._count.games,
+        }))
+        .filter((tag) => tag.gameCount > 0)
+        .sort((left, right) => right.gameCount - left.gameCount || left.name.localeCompare(right.name))
+        .slice(0, 6),
+    },
+  });
+});
+
 router.post("/", async (req: Request, res: Response) => {
   const result = createGameSchema.safeParse(req.body);
   if (!result.success) {
@@ -235,22 +352,38 @@ router.post("/", async (req: Request, res: Response) => {
     return;
   }
 
+  const { wishlistItemId, ...gameFieldsToCreate } = result.data;
+  const wishlistItem = wishlistItemId
+    ? await prisma.wishlistItem.findUnique({
+      where: { id: wishlistItemId },
+      select: { id: true, gameId: true, status: true, tags: { select: { id: true } } },
+    })
+    : null;
+  if (wishlistItemId && !wishlistItem) {
+    res.status(404).json({ error: "Wishlist item not found" });
+    return;
+  }
+  if (wishlistItem && (wishlistItem.gameId || wishlistItem.status === "ACQUIRED" || wishlistItem.status === "ARCHIVED")) {
+    res.status(409).json({ error: "This wishlist item can no longer be added to the collection" });
+    return;
+  }
+
   const shelf = await prisma.shelf.findUnique({
-    where: { id: result.data.shelfId },
+    where: { id: gameFieldsToCreate.shelfId },
     select: { id: true, shelfCount: true },
   });
   if (!shelf) {
     res.status(404).json({ error: "Container not found" });
     return;
   }
-  if (result.data.shelfNumber > shelf.shelfCount) {
+  if (gameFieldsToCreate.shelfNumber > shelf.shelfCount) {
     res.status(400).json({ error: "Level exceeds this container's level count" });
     return;
   }
 
-  if (result.data.stackedOnId) {
+  if (gameFieldsToCreate.stackedOnId) {
     const stackTarget = await prisma.game.findFirst({
-      where: { id: result.data.stackedOnId, deletedGame: { is: null } },
+      where: { id: gameFieldsToCreate.stackedOnId, deletedGame: { is: null } },
       select: { id: true, shelfId: true, shelfNumber: true, stackedOnId: true },
     });
     if (!stackTarget) {
@@ -266,8 +399,8 @@ router.post("/", async (req: Request, res: Response) => {
       return;
     }
     if (
-      stackTarget.shelfId !== result.data.shelfId ||
-      stackTarget.shelfNumber !== result.data.shelfNumber
+      stackTarget.shelfId !== gameFieldsToCreate.shelfId ||
+      stackTarget.shelfNumber !== gameFieldsToCreate.shelfNumber
     ) {
       res.status(400).json({ error: "Stacked games must share the same container and level" });
       return;
@@ -275,9 +408,9 @@ router.post("/", async (req: Request, res: Response) => {
   }
 
   let position: number;
-  if (result.data.stackedOnId) {
+  if (gameFieldsToCreate.stackedOnId) {
     const target = await prisma.game.findFirst({
-      where: { id: result.data.stackedOnId, deletedGame: { is: null } },
+      where: { id: gameFieldsToCreate.stackedOnId, deletedGame: { is: null } },
       select: { id: true, shelfId: true, shelfNumber: true, stackedOnId: true, position: true },
     });
     const root = target ? await findStackRoot(target) : null;
@@ -290,7 +423,7 @@ router.post("/", async (req: Request, res: Response) => {
     const latest = await prisma.game.aggregate({
       where: {
         shelfId: shelf.id,
-        shelfNumber: result.data.shelfNumber,
+        shelfNumber: gameFieldsToCreate.shelfNumber,
         stackedOnId: null,
         deletedGame: { is: null },
       },
@@ -299,17 +432,41 @@ router.post("/", async (req: Request, res: Response) => {
     position = (latest._max.position ?? 0) + 1;
   }
 
-  const game = await prisma.game.create({
-    data: {
-      ...result.data,
-      position,
-      documents: { create: { title: "Rules", content: "", order: -1 } },
-    },
-    include: {
-      shelf: { select: { id: true, name: true, type: true } },
-      tags: { select: { id: true, name: true, color: true } },
-    },
-  });
+  let game;
+  try {
+    game = await prisma.$transaction(async (transaction) => {
+      const created = await transaction.game.create({
+        data: {
+          ...gameFieldsToCreate,
+          position,
+          ...(wishlistItem ? { tags: { connect: wishlistItem.tags } } : {}),
+          documents: { create: { title: "Rules", content: "", order: -1 } },
+        },
+        include: {
+          shelf: { select: { id: true, name: true, type: true } },
+          tags: { select: { id: true, name: true, color: true } },
+        },
+      });
+      if (wishlistItem) {
+        const acquired = await transaction.wishlistItem.updateMany({
+          where: {
+            id: wishlistItem.id,
+            gameId: null,
+            status: { in: ["CONSIDERING", "WANTED", "ORDERED"] },
+          },
+          data: { gameId: created.id, status: "ACQUIRED", acquiredAt: new Date() },
+        });
+        if (acquired.count !== 1) throw new WishlistItemAlreadyAcquiredError();
+      }
+      return created;
+    });
+  } catch (error) {
+    if (error instanceof WishlistItemAlreadyAcquiredError) {
+      res.status(409).json({ error: "This wishlist item was added to the collection by someone else" });
+      return;
+    }
+    throw error;
+  }
   res.status(201).json({ data: game });
 });
 

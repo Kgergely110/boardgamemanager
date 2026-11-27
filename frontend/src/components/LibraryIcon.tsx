@@ -1,6 +1,6 @@
-import { Archive, AudioLines, Award, BookText, CircleUserRound, Dices, LibraryBig, ScrollText, type LucideIcon } from "lucide-react";
+import { Archive, AudioLines, Award, BookText, CircleUserRound, Dices, Heart, LibraryBig, ScrollText, type LucideIcon } from "lucide-react";
 
-export type LibraryIconName = "collection" | "shelf" | "chronicle" | "play" | "wiki" | "ambience" | "user" | "award";
+export type LibraryIconName = "collection" | "shelf" | "chronicle" | "play" | "wiki" | "ambience" | "wishlist" | "user" | "award";
 const iconByName: Record<LibraryIconName, LucideIcon> = {
   collection: LibraryBig,
   shelf: Archive,
@@ -8,6 +8,7 @@ const iconByName: Record<LibraryIconName, LucideIcon> = {
   play: Dices,
   wiki: BookText,
   ambience: AudioLines,
+  wishlist: Heart,
   user: CircleUserRound,
   award: Award,
 };

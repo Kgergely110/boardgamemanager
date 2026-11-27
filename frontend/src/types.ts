@@ -69,10 +69,53 @@ export interface GameArrangementItem {
   orientation?: "vertical" | "horizontal" | "flat";
 }
 
+export interface CollectionPulse {
+  windowDays: number;
+  totalGames: number;
+  playedRecently: number;
+  neverPlayed: number;
+  restingGameCount: number;
+  recentGames: { id: string; name: string; plays: number }[];
+  neverPlayedGames: { id: string; name: string }[];
+  restingGames: { id: string; name: string; lastPlayedAt: string }[];
+  popularTags: { id: string; name: string; color: string | null; gameCount: number }[];
+}
+
 export interface Tag {
   id: string;
   name: string;
   color: string | null;
+}
+
+export type WishlistStatus = "CONSIDERING" | "WANTED" | "ORDERED" | "ACQUIRED" | "ARCHIVED";
+export type WishlistPriority = "LOW" | "NORMAL" | "HIGH";
+
+export interface WishlistItem {
+  id: string;
+  title: string;
+  maker: string | null;
+  releaseYear: number | null;
+  description: string | null;
+  imageUrl: string | null;
+  sourceUrl: string | null;
+  minPlayers: number | null;
+  maxPlayers: number | null;
+  ageLimit: number | null;
+  playTime: number | null;
+  estimatedPriceCents: number | null;
+  currency: string | null;
+  notes: string | null;
+  status: WishlistStatus;
+  priority: WishlistPriority;
+  acquiredAt: string | null;
+  gameId: string | null;
+  game: Pick<Game, "id" | "name" | "maker"> | null;
+  tags: Tag[];
+  addedBy: Pick<Player, "id" | "fullName">;
+  interestCount: number;
+  isInterested: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface GameDocument {
@@ -91,6 +134,7 @@ export interface AmbienceLink {
   title: string;
   kind: "music" | "visual" | "both";
   uri: string;
+  embed: boolean;
   position: number;
 }
 
@@ -187,6 +231,7 @@ export interface PlayLog {
     tags: Pick<Tag, "id" | "name">[];
   } | null;
   guestGame: { id: string; name: string } | null;
+  gameNight: { id: string; startedAt: string; gameCount: number } | null;
   participants: PlayLogParticipant[];
 }
 
@@ -194,6 +239,7 @@ export interface OngoingGame {
   id: string;
   gameId: string | null;
   guestGameId: string | null;
+  gameNightId: string | null;
   startedAt: string;
   pausedAt: string | null;
   pausedDurationSeconds: number;
@@ -215,6 +261,33 @@ export interface OngoingGame {
   participants: { id: string; playerId: string | null; displayName: string }[];
 }
 
+export interface GameNightStanding {
+  playerId: string | null;
+  name: string;
+  wins: number;
+  points: number;
+  gamesPlayed: number;
+}
+
+export interface GameNight {
+  id: string;
+  startedAt: string;
+  endedAt: string | null;
+  gameCount: number;
+  ongoingGameCount: number;
+  standings: {
+    byWins: GameNightStanding[];
+    byPoints: GameNightStanding[];
+  };
+  games?: {
+    id: string;
+    name: string;
+    playedAt: string;
+    duration: number | null;
+    participants: { name: string; placement: number | null }[];
+  }[];
+}
+
 export interface PlayLogStatistics {
   totalSessions: number;
   totalParticipants: number;
@@ -226,6 +299,16 @@ export interface PlayLogStatistics {
     guestGameId: string | null;
     name: string;
     plays: number;
+    wins: number;
   }[];
   topWinners: { playerId: string | null; name: string; wins: number }[];
+  topTags: { id: string; name: string; plays: number; wins: number }[];
+  topPlayers: {
+    playerId: string | null;
+    name: string;
+    plays: number;
+    wins: number;
+    winRate: number;
+  }[];
+  monthlyActivity: { period: string; plays: number; wins: number }[];
 }

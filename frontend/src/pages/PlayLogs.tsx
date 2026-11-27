@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
+import { Crown } from "lucide-react";
 import { Link, useSearchParams } from "react-router-dom";
 import { DevelopmentUserMenu } from "../components/DevelopmentUserMenu";
 import { LibraryIcon, LibraryMark } from "../components/LibraryIcon";
@@ -12,6 +13,33 @@ interface PlayLogPageResponse {
   data: PlayLog[];
   pagination: { page: number; pageSize: number; total: number; totalPages: number };
   statistics: PlayLogStatistics;
+}
+
+interface PlayLogArchiveGroup {
+  key: string;
+  gameNight: PlayLog["gameNight"];
+  logs: PlayLog[];
+}
+
+function groupPlayLogs(logs: PlayLog[]): PlayLogArchiveGroup[] {
+  const groups: PlayLogArchiveGroup[] = [];
+  const nightGroups = new Map<string, PlayLogArchiveGroup>();
+
+  for (const log of logs) {
+    if (!log.gameNight) {
+      groups.push({ key: log.id, gameNight: null, logs: [log] });
+      continue;
+    }
+
+    let group = nightGroups.get(log.gameNight.id);
+    if (!group) {
+      group = { key: log.gameNight.id, gameNight: log.gameNight, logs: [] };
+      nightGroups.set(log.gameNight.id, group);
+      groups.push(group);
+    }
+    group.logs.push(log);
+  }
+  return groups;
 }
 
 interface LogFilters {
@@ -94,7 +122,7 @@ function PlayLogChart({
 }: {
   title: string;
   emptyText: string;
-  items: { label: string; value: number }[];
+  items: { label: string; value: number; detail?: string }[];
 }) {
   const maximum = Math.max(1, ...items.map((item) => item.value));
   return (
@@ -105,14 +133,82 @@ function PlayLogChart({
       ) : (
         <div className="play-log-chart__bars">
           {items.map((item) => (
-            <div className="play-log-chart__row" key={item.label}>
-              <div className="play-log-chart__label"><span>{item.label}</span><b>{item.value}</b></div>
+            <div className="play-log-chart__row" aria-label={`${item.label}: ${item.value}`} key={item.label} role="group">
+              <div className="play-log-chart__label">
+                <span>{item.label}{item.detail && <small>{item.detail}</small>}</span>
+                <b>{item.value}</b>
+              </div>
               <div className="play-log-chart__track">
-                <span style={{ width: `${Math.max(3, (item.value / maximum) * 100)}%` }} />
+                <span style={{ width: `${item.value === 0 ? 0 : Math.max(3, (item.value / maximum) * 100)}%` }} />
               </div>
             </div>
           ))}
         </div>
+      )}
+    </section>
+  );
+}
+
+type InsightDimension = "games" | "tags" | "players" | "timeline";
+
+function PlayLogLeaderboard({
+  items,
+  emptyText,
+}: {
+  items: { label: string; value: number }[];
+  emptyText: string;
+}) {
+  const maximum = Math.max(1, ...items.map((item) => item.value));
+  const leadersCount = items.filter((item) => item.value === maximum).length;
+  let previousWins = -1;
+  let rank = 0;
+
+  return (
+    <section className="play-log-leaderboard" aria-labelledby="play-log-leaderboard-title">
+      <header className="play-log-leaderboard__heading">
+        <div>
+          <span className="eyebrow">THE HOUSEHOLD STANDINGS</span>
+          <h3 id="play-log-leaderboard-title">Table champions</h3>
+        </div>
+        {items.length > 0 && <span>{items.length} ranked</span>}
+      </header>
+      {items.length === 0 ? (
+        <p className="play-log-chart__empty">{emptyText}</p>
+      ) : (
+        <ol className="play-log-leaderboard__list">
+          {items.map((item, index) => {
+            if (item.value !== previousWins) rank = index + 1;
+            previousWins = item.value;
+            const isWinner = item.value === maximum;
+            const placement = isWinner
+              ? leadersCount > 1 ? "tied for first place" : "first place"
+              : `rank ${rank}`;
+            return (
+              <li
+                aria-label={`${item.label}, ${placement}, ${item.value} ${item.value === 1 ? "win" : "wins"}`}
+                className={`play-log-leaderboard__row${isWinner ? " play-log-leaderboard__row--winner" : ""}`}
+                key={`${item.label}-${index}`}
+              >
+                <span className="play-log-leaderboard__rank" aria-hidden="true">
+                  {isWinner ? <Crown /> : String(rank).padStart(2, "0")}
+                </span>
+                <div className="play-log-leaderboard__player">
+                  <div className="play-log-leaderboard__player-name">
+                    <strong>{item.label}</strong>
+                    {isWinner && <span>{leadersCount > 1 ? "Co-champion" : "Table champion"}</span>}
+                  </div>
+                  <div className="play-log-leaderboard__track" aria-hidden="true">
+                    <span style={{ width: `${Math.max(4, (item.value / maximum) * 100)}%` }} />
+                  </div>
+                </div>
+                <div className="play-log-leaderboard__wins">
+                  <strong>{item.value}</strong>
+                  <span>{item.value === 1 ? "win" : "wins"}</span>
+                </div>
+              </li>
+            );
+          })}
+        </ol>
       )}
     </section>
   );
@@ -130,6 +226,7 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
   const [filterDraft, setFilterDraft] = useState<LogFilters>(() => emptyFilters(initialGameId));
   const [page, setPage] = useState(1);
   const [pageData, setPageData] = useState<PlayLogPageResponse | null>(null);
+  const [insightDimension, setInsightDimension] = useState<InsightDimension>("games");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
@@ -303,7 +400,43 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
   }
 
   const totalPages = Math.max(pageData?.pagination.totalPages ?? 0, 1);
+  const archiveGroups = groupPlayLogs(pageData?.data ?? []);
   const statistics = pageData?.statistics;
+  const monthlyActivity = (() => {
+    const activity = statistics?.monthlyActivity ?? [];
+    if (activity.length === 0) return [];
+    const byPeriod = new Map(activity.map((item) => [item.period, item]));
+    const lastDate = new Date(`${activity[activity.length - 1].period}-01T00:00:00.000Z`);
+    const firstDate = new Date(`${activity[Math.max(0, activity.length - 12)].period}-01T00:00:00.000Z`);
+    const months: { period: string; plays: number; wins: number }[] = [];
+    for (const cursor = new Date(firstDate); cursor <= lastDate; cursor.setUTCMonth(cursor.getUTCMonth() + 1)) {
+      const period = cursor.toISOString().slice(0, 7);
+      months.push(byPeriod.get(period) ?? { period, plays: 0, wins: 0 });
+    }
+    return months;
+  })();
+  const insightNames: Record<InsightDimension, { label: string; plays: string; wins: string }> = {
+    games: { label: "Games", plays: "Most played games", wins: "First-place finishes by game" },
+    tags: { label: "Tags", plays: "Most played game types", wins: "First-place finishes by type" },
+    players: { label: "Players", plays: "Most active players", wins: "Player wins" },
+    timeline: { label: "Over time", plays: "Sessions by month", wins: "First-place finishes by month" },
+  };
+  const insightItems: { label: string; plays: number; wins: number; detail?: string }[] = insightDimension === "games"
+    ? (statistics?.mostPlayedGames ?? []).map((item) => ({ label: item.name, plays: item.plays, wins: item.wins }))
+    : insightDimension === "tags"
+      ? (statistics?.topTags ?? []).map((item) => ({ label: item.name, plays: item.plays, wins: item.wins }))
+      : insightDimension === "players"
+        ? (statistics?.topPlayers ?? []).map((item) => ({
+            label: item.name,
+            plays: item.plays,
+            wins: item.wins,
+            detail: `${item.winRate}% win rate`,
+          }))
+        : monthlyActivity.map((item) => ({
+            label: new Date(`${item.period}-01T00:00:00.000Z`).toLocaleDateString(undefined, { month: "short", year: "2-digit" }),
+            plays: item.plays,
+            wins: item.wins,
+          }));
 
   return (
     <div className="library-shell play-log-shell">
@@ -326,6 +459,9 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
           </Link>
           <Link className="shelf-nav__item is-selected" to="/logs" aria-current="page">
             <span className="shelf-nav__glyph"><LibraryIcon name="chronicle" /></span><span>Game logs</span>
+          </Link>
+          <Link className="shelf-nav__item" to="/wishlist">
+            <span className="shelf-nav__glyph"><LibraryIcon name="wishlist" /></span><span>Wishlist</span>
           </Link>
         </div>
         <div className="rail-utility">
@@ -384,17 +520,44 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
             <article><span>TABLE TIME</span><strong>{statistics ? durationLabel(statistics.totalDurationMinutes) : "—"}</strong></article>
             <article><span>AVG. SESSION</span><strong>{statistics ? durationLabel(statistics.averageDurationMinutes) : "—"}</strong></article>
           </div>
-          <div className="play-log-statistics__charts">
-            <PlayLogChart
-              emptyText="Played games will appear here as you record sessions."
-              items={(statistics?.mostPlayedGames ?? []).map((item) => ({ label: item.name, value: item.plays }))}
-              title="Most played games"
-            />
-            <PlayLogChart
-              emptyText="Assign first place to participants to track championship wins. Tied first places count for everyone."
-              items={(statistics?.topWinners ?? []).map((item) => ({ label: item.name, value: item.wins }))}
-              title="Most first-place finishes"
-            />
+          <div className="play-log-insights">
+            <div className="play-log-insights__controls" role="group" aria-label="Explore insights by">
+              {(Object.keys(insightNames) as InsightDimension[]).map((dimension) => (
+                <button
+                  aria-pressed={insightDimension === dimension}
+                  className={insightDimension === dimension ? "is-selected" : ""}
+                  key={dimension}
+                  onClick={() => setInsightDimension(dimension)}
+                  type="button"
+                >
+                  {insightNames[dimension].label}
+                </button>
+              ))}
+            </div>
+            <div className="play-log-statistics__charts" aria-live="polite">
+              <PlayLogChart
+                emptyText={insightDimension === "timeline"
+                  ? "Activity over time will appear as you record sessions."
+                  : "No matching plays in this breakdown yet."}
+                items={insightItems.map((item) => ({ label: item.label, value: item.plays, detail: item.detail }))}
+                title={insightNames[insightDimension].plays}
+              />
+              {insightDimension === "players" ? (
+                <PlayLogLeaderboard
+                  emptyText="Assign first place to track wins. Every player tied for first receives a win."
+                  items={insightItems.map((item) => ({ label: item.label, value: item.wins }))}
+                />
+              ) : (
+                <PlayLogChart
+                  emptyText="Assign first place to participants to track wins. Tied first places count for everyone."
+                  items={insightItems.map((item) => ({ label: item.label, value: item.wins }))}
+                  title={insightNames[insightDimension].wins}
+                />
+              )}
+            </div>
+            <p className="play-log-insights__note">
+              Wins count every first-place finisher, including everyone tied. Insights use the filters below.
+            </p>
           </div>
         </section>
 
@@ -463,12 +626,36 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
             <div className="empty-state play-log-empty" role="status" aria-live="polite"><p>Opening the chronicle…</p></div>
           ) : pageData?.data.length ? (
             <div className={`play-log-list ${loading ? "is-loading" : ""}`} aria-busy={loading}>
-              {pageData.data.map((log) => (
+              {archiveGroups.map((group) => group.gameNight ? (
+                <section className="play-log-night-group" key={group.key} aria-label={`Games from game night ${new Date(group.gameNight.startedAt).toLocaleDateString()}`}>
+                  <header className="play-log-night-group__heading">
+                    <div>
+                      <span className="eyebrow">ONE EVENING, MANY STORIES</span>
+                      <h3>Game night · {new Date(group.gameNight.startedAt).toLocaleDateString(undefined, { dateStyle: "long" })}</h3>
+                    </div>
+                    <span>
+                      {group.logs.length === group.gameNight.gameCount
+                        ? `${group.logs.length} ${group.logs.length === 1 ? "game" : "games"}`
+                        : `Showing ${group.logs.length} of ${group.gameNight.gameCount} night records on this page`}
+                    </span>
+                  </header>
+                  <div className="play-log-night-group__games">
+                    {group.logs.map((log) => (
+                      <PlayLogCard
+                        key={log.id}
+                        log={log}
+                        onDelete={() => setPendingDelete(log)}
+                        onEdit={() => openEditLog(log)}
+                      />
+                    ))}
+                  </div>
+                </section>
+              ) : (
                 <PlayLogCard
-                  key={log.id}
-                  log={log}
-                  onDelete={() => setPendingDelete(log)}
-                  onEdit={() => openEditLog(log)}
+                  key={group.logs[0].id}
+                  log={group.logs[0]}
+                  onDelete={() => setPendingDelete(group.logs[0])}
+                  onEdit={() => openEditLog(group.logs[0])}
                 />
               ))}
             </div>
@@ -516,7 +703,7 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
               </label>
               {draft.gameType === "library" ? (
                 <label className="play-log-editor__wide">
-                  Library game
+                  <span className="field-label">Library game</span>
                   <select required value={draft.gameId} onChange={(event) => setDraft((value) => ({ ...value, gameId: event.target.value }))}>
                     <option value="">Choose a game</option>
                     {games.map((game) => <option key={game.id} value={game.id}>{game.name}</option>)}
@@ -524,7 +711,7 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
                 </label>
               ) : (
                 <label className="play-log-editor__wide">
-                  Guest game name
+                  <span className="field-label">Guest game name</span>
                   <input
                     autoComplete="off"
                     maxLength={120}
@@ -539,7 +726,7 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
                 </label>
               )}
               <label>
-                Played at
+                <span className="field-label">Played at</span>
                 <input required type="datetime-local" value={draft.playedAt} onChange={(event) => setDraft((value) => ({ ...value, playedAt: event.target.value }))} />
               </label>
               <label>
@@ -580,7 +767,7 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
                   </label>
                   {participant.kind === "account" ? (
                     <label>
-                      App player
+                      <span className="field-label">App player</span>
                       <select required value={participant.playerId} onChange={(event) => updateParticipant(participant.key, { playerId: event.target.value })}>
                         <option value="">Choose a player</option>
                         {players.map((appPlayer) => <option key={appPlayer.id} value={appPlayer.id}>{appPlayer.fullName}</option>)}
@@ -588,7 +775,7 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
                     </label>
                   ) : (
                     <label>
-                      Guest name
+                      <span className="field-label">Guest name</span>
                       <input maxLength={100} required value={participant.name} onChange={(event) => updateParticipant(participant.key, { name: event.target.value })} />
                     </label>
                   )}
@@ -598,7 +785,7 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
                   </label>
                   <label>
                     Score
-                    <input type="number" placeholder="Optional" value={participant.score} onChange={(event) => updateParticipant(participant.key, { score: event.target.value })} />
+                    <input type="number" value={participant.score} onChange={(event) => updateParticipant(participant.key, { score: event.target.value })} />
                   </label>
                   <button
                     aria-label={`Remove player ${index + 1}`}

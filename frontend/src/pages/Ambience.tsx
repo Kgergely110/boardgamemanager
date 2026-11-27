@@ -1,13 +1,16 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
+import { ExternalLink, Image as ImageIcon, Music2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { DevelopmentUserMenu } from "../components/DevelopmentUserMenu";
 import { LibraryIcon, LibraryMark } from "../components/LibraryIcon";
 import { ThemePicker } from "../components/ThemePicker";
 import { api, getErrorMessage } from "../lib/api";
+import { revealAndFocus } from "../lib/navigation";
+import { getSpotifyEmbed } from "../lib/spotifyEmbed";
 import { AmbienceSet, Game, Player, Tag } from "../types";
 
 type LinkKind = "music" | "visual" | "both";
-type AmbienceLinkDraft = { title: string; kind: LinkKind; uri: string };
+type AmbienceLinkDraft = { title: string; kind: LinkKind; uri: string; embed: boolean };
 type AmbienceDraft = {
   id: string | null;
   name: string;
@@ -23,7 +26,7 @@ const emptyDraft = (): AmbienceDraft => ({
   description: "",
   gameIds: [],
   tagIds: [],
-  links: [{ title: "", kind: "music", uri: "" }],
+  links: [{ title: "", kind: "music", uri: "", embed: false }],
 });
 
 function toggleId(ids: string[], id: string): string[] {
@@ -49,6 +52,12 @@ export function Ambience({ player, onLogout }: { player: Player; onLogout: () =>
   const [formError, setFormError] = useState("");
   const [notice, setNotice] = useState("");
   const [revision, setRevision] = useState(0);
+  const editorRef = useRef<HTMLFormElement>(null);
+  const [editorRevealToken, setEditorRevealToken] = useState(0);
+
+  useEffect(() => {
+    revealAndFocus(editorRef.current);
+  }, [editorRevealToken]);
 
   useEffect(() => {
     let active = true;
@@ -86,11 +95,16 @@ export function Ambience({ player, onLogout }: { player: Player; onLogout: () =>
       description: set.description ?? "",
       gameIds: set.games.map((game) => game.id),
       tagIds: set.tags.map((tag) => tag.id),
-      links: set.links.map(({ title, kind, uri }) => ({ title, kind, uri })),
+      links: set.links.map(({ title, kind, uri, embed }) => ({ title, kind, uri, embed })),
     });
+    setEditorRevealToken((token) => token + 1);
   }
 
-  function updateLink(index: number, field: keyof AmbienceLinkDraft, value: string) {
+  function updateLink<Field extends keyof AmbienceLinkDraft>(
+    index: number,
+    field: Field,
+    value: AmbienceLinkDraft[Field],
+  ) {
     setDraft((current) => current && ({
       ...current,
       links: current.links.map((link, linkIndex) => linkIndex === index
@@ -102,6 +116,11 @@ export function Ambience({ player, onLogout }: { player: Player; onLogout: () =>
   async function saveSet(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!draft) return;
+    const invalidEmbed = draft.links.find((link) => link.embed && !getSpotifyEmbed(link.uri));
+    if (invalidEmbed) {
+      setFormError(`“${invalidEmbed.title || "Untitled link"}” needs a Spotify track, album, artist, playlist, show, or episode URL or URI to embed.`);
+      return;
+    }
     setSaving(true);
     setFormError("");
     setNotice("");
@@ -174,6 +193,10 @@ export function Ambience({ player, onLogout }: { player: Player; onLogout: () =>
             <span className="shelf-nav__glyph"><LibraryIcon name="chronicle" /></span>
             <span>Game logs</span>
           </Link>
+          <Link className="shelf-nav__item" to="/wishlist">
+            <span className="shelf-nav__glyph"><LibraryIcon name="wishlist" /></span>
+            <span>Wishlist</span>
+          </Link>
         </div>
         <div className="rail-utility">
           <span className="rail-label">REFERENCE</span>
@@ -210,6 +233,7 @@ export function Ambience({ player, onLogout }: { player: Player; onLogout: () =>
             setNotice("");
             setFormError("");
             setDraft(emptyDraft());
+            setEditorRevealToken((token) => token + 1);
           }} type="button">＋ New atmosphere</button>
         </section>
 
@@ -217,7 +241,7 @@ export function Ambience({ player, onLogout }: { player: Player; onLogout: () =>
         {notice && <div className="notice" role="status">{notice}</div>}
 
         {draft && (
-          <form className="ambience-editor" onSubmit={(event) => void saveSet(event)}>
+          <form className="ambience-editor" onSubmit={(event) => void saveSet(event)} ref={editorRef}>
             <header className="ambience-editor__heading">
               <div>
                 <span className="eyebrow">{draft.id ? "REFINE AN ATMOSPHERE" : "CREATE AN ATMOSPHERE"}</span>
@@ -228,11 +252,11 @@ export function Ambience({ player, onLogout }: { player: Player; onLogout: () =>
             </header>
             <div className="ambience-editor__fields">
               <label className="ambience-field">
-                <span>Name</span>
+                <span className="field-label">Name</span>
                 <input autoFocus maxLength={100} onChange={(event) => setDraft({ ...draft, name: event.target.value })} required value={draft.name} />
               </label>
               <label className="ambience-field">
-                <span>Description <small>OPTIONAL</small></span>
+                <span>Description</span>
                 <input maxLength={500} onChange={(event) => setDraft({ ...draft, description: event.target.value })} value={draft.description} />
               </label>
             </div>
@@ -282,26 +306,55 @@ export function Ambience({ player, onLogout }: { player: Player; onLogout: () =>
                 <div><span className="eyebrow">THE SOUND & THE SIGHT</span><h3 id="ambience-links-title">Links in this setup</h3></div>
                 <button className="button button--quiet" disabled={draft.links.length >= 20} onClick={() => setDraft({
                   ...draft,
-                  links: [...draft.links, { title: "", kind: "music", uri: "" }],
+                  links: [...draft.links, { title: "", kind: "music", uri: "", embed: false }],
                 })} type="button">＋ Add link</button>
               </header>
               {draft.links.map((link, index) => (
                 <div className="ambience-link-editor" key={index}>
                   <label className="ambience-field">
-                    <span>Link title</span>
+                    <span className="field-label">Link title</span>
                     <input maxLength={100} onChange={(event) => updateLink(index, "title", event.target.value)} placeholder="e.g. Tavern rain ambience" required value={link.title} />
                   </label>
                   <label className="ambience-field">
                     <span>Kind</span>
-                    <select onChange={(event) => updateLink(index, "kind", event.target.value)} value={link.kind}>
+                    <select
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        if (value === "music" || value === "visual" || value === "both") {
+                          updateLink(index, "kind", value);
+                        }
+                      }}
+                      value={link.kind}
+                    >
                       <option value="music">Music</option>
-                      <option value="visual">Visual</option>
+                      <option disabled={link.embed} value="visual">Visual</option>
                       <option value="both">Music & visual</option>
                     </select>
                   </label>
+                  <label className="ambience-field">
+                    <span>Playback</span>
+                    <select
+                      onChange={(event) => {
+                        const embed = event.target.value === "embed";
+                        updateLink(index, "embed", embed);
+                        if (embed && link.kind === "visual") updateLink(index, "kind", "music");
+                      }}
+                      value={link.embed ? "embed" : "link"}
+                    >
+                      <option value="link">Open link</option>
+                      <option value="embed">Spotify player</option>
+                    </select>
+                  </label>
                   <label className="ambience-field ambience-link-editor__uri">
-                    <span>Link or Spotify URI</span>
-                    <input maxLength={2048} onChange={(event) => updateLink(index, "uri", event.target.value)} placeholder="https://… or spotify:playlist:…" required value={link.uri} />
+                    <span className="field-label">{link.embed ? "Spotify URL or URI" : "Link or Spotify URI"}</span>
+                    <input
+                      maxLength={2048}
+                      onChange={(event) => updateLink(index, "uri", event.target.value)}
+                      placeholder={link.embed ? "https://open.spotify.com/playlist/… or spotify:track:…" : "https://… or spotify:playlist:…"}
+                      required
+                      value={link.uri}
+                    />
+                    {link.embed && <small className="ambience-link-editor__hint">Embeds supported Spotify tracks, albums, playlists, shows, episodes, and artists.</small>}
                   </label>
                   <button
                     aria-label={`Remove ${link.title || "untitled link"}`}
@@ -313,7 +366,7 @@ export function Ambience({ player, onLogout }: { player: Player; onLogout: () =>
                 </div>
               ))}
             </section>
-            <p className="ambience-editor__help">Links open in their service when selected; this library does not play or host media.</p>
+            <p className="ambience-editor__help">Links open in their service; Spotify player links can also be embedded on the ongoing game page.</p>
             {formError && <p className="ambience-editor__error" role="alert">{formError}</p>}
             <footer className="ambience-editor__footer">
               <button className="button button--quiet" disabled={saving} onClick={() => setDraft(null)} type="button">Cancel</button>
@@ -352,8 +405,22 @@ export function Ambience({ player, onLogout }: { player: Player; onLogout: () =>
                   </div>
                   <div className="ambience-card__links">
                     {set.links.map((link) => (
-                      <a href={link.uri} key={link.id} rel="noopener noreferrer" target="_blank">
-                        <span>{kindLabel(link.kind)}</span><strong>{link.title}</strong><span aria-hidden="true">↗</span>
+                      <a
+                        aria-label={`${kindLabel(link.kind)}: ${link.title} (opens in a new tab)`}
+                        className={`ambience-link ambience-link--${link.kind}`}
+                        href={link.uri}
+                        key={link.id}
+                        rel="noopener noreferrer"
+                        target="_blank"
+                      >
+                        <span className={`ambience-link__icon ambience-link__icon--${link.kind}`} aria-hidden="true">
+                          {link.kind === "music" ? <Music2 /> : link.kind === "visual" ? <ImageIcon /> : <><Music2 /><ImageIcon /></>}
+                        </span>
+                        <span className="ambience-link__copy">
+                          <span className="ambience-link__kind">{link.embed ? "Embedded Spotify player" : kindLabel(link.kind)}</span>
+                          <strong title={link.title}>{link.title}</strong>
+                        </span>
+                        <ExternalLink className="ambience-link__external" aria-hidden="true" />
                       </a>
                     ))}
                   </div>

@@ -135,9 +135,45 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
   const [reviewsRevision, setReviewsRevision] = useState(0);
   const [ratingDraft, setRatingDraft] = useState<RatingDraft>(() => emptyRatingDraft());
   const [ratingBusy, setRatingBusy] = useState(false);
+  const [activeDossierSection, setActiveDossierSection] = useState("overview");
   const [awardDraft, setAwardDraft] = useState<AwardDraft>({ name: "", category: "", year: "" });
   const [awardBusyId, setAwardBusyId] = useState("");
   const [awardSaving, setAwardSaving] = useState(false);
+
+  useEffect(() => {
+    const sections = Array.from(
+      document.querySelectorAll<HTMLElement>(".dossier-main .dossier-section[id]"),
+    );
+    if (sections.length === 0) return;
+
+    let frame = 0;
+    let updateScheduled = false;
+    const updateActiveSection = () => {
+      if (updateScheduled) return;
+      updateScheduled = true;
+      frame = window.requestAnimationFrame(() => {
+        updateScheduled = false;
+        const atPageBottom = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2;
+        const marker = window.innerHeight * 0.3;
+        let currentSection = sections[0];
+        for (const section of sections) {
+          if (section.getBoundingClientRect().top > marker) break;
+          currentSection = section;
+        }
+        if (atPageBottom) currentSection = sections[sections.length - 1];
+        setActiveDossierSection((current) => current === currentSection.id ? current : currentSection.id);
+      });
+    };
+
+    updateActiveSection();
+    window.addEventListener("scroll", updateActiveSection, { passive: true });
+    window.addEventListener("resize", updateActiveSection);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("scroll", updateActiveSection);
+      window.removeEventListener("resize", updateActiveSection);
+    };
+  }, [game?.id]);
 
   useEffect(() => {
     const currentGame = game?.id === gameId ? game : null;
@@ -513,7 +549,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
       <form className="dossier-document-editor" onSubmit={saveDocument}>
         <div className="dossier-document-editor__fields">
           <label>
-            Document title
+            <span className="field-label">Document title</span>
             <input
               disabled={lockedTitle}
               maxLength={100}
@@ -577,6 +613,10 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
           <span className="shelf-nav__glyph"><LibraryIcon name="chronicle" /></span>
           <span>Game logs</span>
         </Link>
+        <Link className="shelf-nav__item dossier-rail-link" to="/wishlist">
+          <span className="shelf-nav__glyph"><LibraryIcon name="wishlist" /></span>
+          <span>Wishlist</span>
+        </Link>
         <Link className="shelf-nav__item dossier-rail-link" to="/wiki">
           <span className="shelf-nav__glyph"><LibraryIcon name="wiki" /></span>
           <span>Game wiki</span>
@@ -639,11 +679,11 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
             </section>
 
             <nav className="dossier-index" aria-label="Dossier sections">
-              <a href="#overview">Overview</a>
-              <a href="#ratings-awards">Ratings &amp; awards</a>
-              <a href="#tags">Tags</a>
-              <a href="#documents">Documents</a>
-              <a href="#play-history">Play history</a>
+              <a aria-current={activeDossierSection === "overview" ? "location" : undefined} href="#overview">Overview</a>
+              <a aria-current={activeDossierSection === "ratings-awards" ? "location" : undefined} href="#ratings-awards">Ratings &amp; awards</a>
+              <a aria-current={activeDossierSection === "tags" ? "location" : undefined} href="#tags">Tags</a>
+              <a aria-current={activeDossierSection === "documents" ? "location" : undefined} href="#documents">Documents</a>
+              <a aria-current={activeDossierSection === "play-history" ? "location" : undefined} href="#play-history">Play history</a>
             </nav>
 
             <section className="dossier-section" id="overview">
@@ -671,7 +711,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                 </div>
                 {descriptionEditing ? (
                   <form className="dossier-description-form" onSubmit={saveDescription}>
-                    <label htmlFor="game-description">Short description <span className="field-requirement">Optional</span></label>
+                    <label htmlFor="game-description">Short description</label>
                     <textarea
                       id="game-description"
                       maxLength={500}
@@ -769,7 +809,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                       </div>
                       <form onSubmit={saveRating}>
                         <fieldset className="game-rating-form__overall">
-                          <legend>Overall rating <span>Required</span></legend>
+                          <legend>Overall rating <span className="required-mark" aria-hidden="true">*</span></legend>
                           <div className="game-rating-form__stars" role="group" aria-label="Overall rating from one to five stars">
                             {[1, 2, 3, 4, 5].map((value) => (
                               <button
@@ -806,7 +846,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                           ))}
                         </div>
                         <label className="game-rating-form__comment">
-                          Comment <span>Optional</span>
+                          Comment
                           <textarea
                             disabled={ratingBusy}
                             maxLength={2000}
@@ -860,7 +900,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                       )}
                       <form className="game-awards__form" onSubmit={addAward}>
                         <label>
-                          Award name
+                          <span className="field-label">Award name</span>
                           <input
                             maxLength={120}
                             onChange={(event) => setAwardDraft((draft) => ({ ...draft, name: event.target.value }))}
@@ -871,7 +911,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                         </label>
                         <div className="game-awards__form-row">
                           <label>
-                            Category <small>Optional</small>
+                            Category
                             <input
                               maxLength={120}
                               onChange={(event) => setAwardDraft((draft) => ({ ...draft, category: event.target.value }))}
@@ -880,7 +920,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                             />
                           </label>
                           <label>
-                            Year <small>Optional</small>
+                            Year
                             <input
                               max="2200"
                               min="1800"

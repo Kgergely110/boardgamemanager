@@ -7,7 +7,7 @@ import { authenticateToken } from "../middlewares/auth.js";
 
 const router = Router();
 
-const userSchema = z.object({
+export const userSchema = z.object({
   fullName: z.string().trim().min(1).max(80),
   username: z.string().trim().min(3).max(32).regex(/^[a-zA-Z0-9._-]+$/),
   password: z.string().min(8).max(128),

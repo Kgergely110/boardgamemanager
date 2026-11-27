@@ -94,11 +94,11 @@ export function DevelopmentUserMenu({ player }: DevelopmentUserMenuProps) {
             </header>
             <div className="play-log-editor__fields dev-user-editor__fields">
               <label>
-                Full name
+                <span className="field-label">Full name</span>
                 <input autoComplete="name" maxLength={80} name="fullName" required />
               </label>
               <label>
-                Username
+                <span className="field-label">Username</span>
                 <input
                   autoComplete="username"
                   maxLength={32}
@@ -109,7 +109,7 @@ export function DevelopmentUserMenu({ player }: DevelopmentUserMenuProps) {
                 />
               </label>
               <label>
-                Password
+                <span className="field-label">Password</span>
                 <input
                   autoComplete="new-password"
                   maxLength={128}

@@ -1,12 +1,14 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { Bookcase } from "../components/Bookcase";
+import { CollectionPulse } from "../components/CollectionPulse";
 import { DevelopmentUserMenu } from "../components/DevelopmentUserMenu";
 import { LibraryIcon, LibraryMark } from "../components/LibraryIcon";
 import { ThemePicker } from "../components/ThemePicker";
 import { api, getErrorMessage, setAuthToken } from "../lib/api";
 import { matchesGameSearch } from "../lib/gameSearch";
-import { DeletedGameMatch, Game, GameArrangementItem, Player, Shelf, Tag } from "../types";
+import { revealAndFocus } from "../lib/navigation";
+import { CollectionPulse as CollectionPulseData, DeletedGameMatch, Game, GameArrangementItem, Player, Shelf, Tag } from "../types";
 
 interface LibraryProps {
   player: Player;
@@ -38,6 +40,10 @@ export function Library({ player, onLogout }: LibraryProps) {
   const [shelves, setShelves] = useState<Shelf[]>([]);
   const [games, setGames] = useState<Game[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
+  const [collectionPulse, setCollectionPulse] = useState<CollectionPulseData | null>(null);
+  const [collectionPulseLoading, setCollectionPulseLoading] = useState(true);
+  const [collectionPulseError, setCollectionPulseError] = useState("");
+  const [collectionPulseRevision, setCollectionPulseRevision] = useState(0);
   const [selectedShelfId, setSelectedShelfId] = useState("all");
   const [containersExpanded, setContainersExpanded] = useState(false);
   const [query, setQuery] = useState("");
@@ -70,6 +76,18 @@ export function Library({ player, onLogout }: LibraryProps) {
   const [notice, setNotice] = useState("");
   const location = useLocation();
   const navigate = useNavigate();
+  const shelfFormRef = useRef<HTMLFormElement>(null);
+  const gameFormRef = useRef<HTMLFormElement>(null);
+  const [shelfRevealToken, setShelfRevealToken] = useState(0);
+  const [gameRevealToken, setGameRevealToken] = useState(0);
+
+  useEffect(() => {
+    revealAndFocus(shelfFormRef.current);
+  }, [shelfRevealToken]);
+
+  useEffect(() => {
+    revealAndFocus(gameFormRef.current);
+  }, [gameRevealToken]);
 
   useEffect(() => {
     if (!pendingDelete) return;
@@ -140,6 +158,29 @@ export function Library({ player, onLogout }: LibraryProps) {
       window.clearTimeout(timer);
     };
   }, [catalogRevision]);
+
+  useEffect(() => {
+    let active = true;
+    if (selectedShelfId !== "all") {
+      setCollectionPulse(null);
+      setCollectionPulseLoading(false);
+      return () => { active = false; };
+    }
+
+    setCollectionPulseLoading(true);
+    setCollectionPulseError("");
+    api.get<{ data: CollectionPulseData }>("/games/collection-pulse")
+      .then(({ data }) => {
+        if (active) setCollectionPulse(data.data);
+      })
+      .catch((requestError: unknown) => {
+        if (active) setCollectionPulseError(getErrorMessage(requestError));
+      })
+      .finally(() => {
+        if (active) setCollectionPulseLoading(false);
+      });
+    return () => { active = false; };
+  }, [catalogRevision, collectionPulseRevision, selectedShelfId]);
 
   async function saveShelf(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -380,6 +421,13 @@ export function Library({ player, onLogout }: LibraryProps) {
   function openNewShelf() {
     setEditingShelf(null);
     setShelfFormOpen(true);
+    setShelfRevealToken((token) => token + 1);
+  }
+
+  function openEditShelf(shelf: Shelf) {
+    setEditingShelf(shelf);
+    setShelfFormOpen(true);
+    setShelfRevealToken((token) => token + 1);
   }
 
   function openNewGame() {
@@ -389,6 +437,7 @@ export function Library({ player, onLogout }: LibraryProps) {
     setGameOrientation("vertical");
     setGameStackedOnId("");
     setGameFormOpen(true);
+    setGameRevealToken((token) => token + 1);
   }
 
   function openEditGame(game: Game) {
@@ -398,6 +447,7 @@ export function Library({ player, onLogout }: LibraryProps) {
     setGameOrientation(game.orientation);
     setGameStackedOnId(game.stackedOnId ?? "");
     setGameFormOpen(true);
+    setGameRevealToken((token) => token + 1);
   }
 
   const selectedShelf = shelves.find((shelf) => shelf.id === selectedShelfId);
@@ -491,6 +541,10 @@ export function Library({ player, onLogout }: LibraryProps) {
             <span className="shelf-nav__glyph"><LibraryIcon name="chronicle" /></span>
             <span>Game logs</span>
           </Link>
+          <Link className="shelf-nav__item" to="/wishlist">
+            <span className="shelf-nav__glyph"><LibraryIcon name="wishlist" /></span>
+            <span>Wishlist</span>
+          </Link>
         </div>
         <div className="rail-utility">
           <span className="rail-label">REFERENCE</span>
@@ -545,8 +599,7 @@ export function Library({ player, onLogout }: LibraryProps) {
                   <div className="container-manage__menu">
                     <button
                       onClick={() => {
-                        setEditingShelf(selectedShelf);
-                        setShelfFormOpen(true);
+                        openEditShelf(selectedShelf);
                         setContainerMenuOpen(false);
                       }}
                     >
@@ -587,20 +640,29 @@ export function Library({ player, onLogout }: LibraryProps) {
         {error && <div className="notice notice--error" role="alert">{error}<button onClick={() => setError("")}>Dismiss</button></div>}
         {notice && <div className="notice" role="status">{notice}<button onClick={() => setNotice("")}>Dismiss</button></div>}
 
+        {selectedShelfId === "all" && (
+          <CollectionPulse
+            data={collectionPulse}
+            error={collectionPulseError}
+            loading={collectionPulseLoading}
+            onRetry={() => setCollectionPulseRevision((revision) => revision + 1)}
+          />
+        )}
+
         {shelfFormOpen && (
-          <form className="inline-form shelf-form" key={editingShelf?.id ?? "new-container"} onSubmit={saveShelf}>
+          <form className="inline-form shelf-form" key={editingShelf?.id ?? "new-container"} onSubmit={saveShelf} ref={shelfFormRef}>
             <div className="form-heading">
               <span className="eyebrow">{editingShelf ? "REFINE THE COLLECTION" : "MAKE ROOM"}</span>
               <h2>{editingShelf ? "Edit container" : "Add a container"}</h2>
             </div>
-            <label>Name<input name="name" maxLength={80} defaultValue={editingShelf?.name} placeholder="e.g. The old walnut bookcase" required /></label>
+            <label><span className="field-label">Name</span><input name="name" maxLength={80} defaultValue={editingShelf?.name} placeholder="e.g. The old walnut bookcase" required /></label>
             <label>Kind
               <select name="type" defaultValue={editingShelf?.type ?? "shelf"}>
                 <option value="shelf">Bookcase</option><option value="cupboard">Cupboard</option>
                 <option value="desk">Desk</option><option value="cabinet">Cabinet</option><option value="other">Other</option>
               </select>
             </label>
-            <label>Levels<input name="shelfCount" type="number" min="1" max="100" defaultValue={editingShelf?.shelfCount ?? 4} required /></label>
+            <label><span className="field-label">Levels</span><input name="shelfCount" type="number" min="1" max="100" defaultValue={editingShelf?.shelfCount ?? 4} required /></label>
             <label>Shelf accent<input name="color" type="color" defaultValue={editingShelf?.color ?? "#a66b42"} /></label>
             <label>Cabinet color<input name="cabinetColor" type="color" defaultValue={editingShelf?.cabinetColor ?? "#795638"} /></label>
             <label>Width (cm)<input name="width" type="number" min="1" defaultValue={editingShelf?.width ?? ""} /></label>
@@ -612,15 +674,15 @@ export function Library({ player, onLogout }: LibraryProps) {
         )}
 
         {gameFormOpen && (
-          <form className="inline-form game-form" key={editingGame?.id ?? "new-game"} onSubmit={saveGame}>
+          <form className="inline-form game-form" key={editingGame?.id ?? "new-game"} onSubmit={saveGame} ref={gameFormRef}>
             <div className="form-heading">
               <span className="eyebrow">{editingGame ? "UPDATE ITS CATALOGUE ENTRY" : "GIVE IT A HOME"}</span>
               <h2>{editingGame ? "Edit board game" : "Add a board game"}</h2>
             </div>
             <div className="form-grid">
-              <label>Game title<input name="name" maxLength={120} defaultValue={editingGame?.name} required placeholder="The name on the box" /></label>
-              <label>Publisher or designer<input name="maker" maxLength={120} defaultValue={editingGame?.maker} required /></label>
-              <label>Container
+              <label><span className="field-label">Game title</span><input name="name" maxLength={120} defaultValue={editingGame?.name} required placeholder="The name on the box" /></label>
+              <label><span className="field-label">Publisher or designer</span><input name="maker" maxLength={120} defaultValue={editingGame?.maker} required /></label>
+              <label><span className="field-label">Container</span>
                 <select
                   name="shelfId"
                   onChange={(event) => {
@@ -633,7 +695,7 @@ export function Library({ player, onLogout }: LibraryProps) {
                   {shelves.map((shelf) => <option key={shelf.id} value={shelf.id}>{shelf.name}</option>)}
                 </select>
               </label>
-              <label>Level<input
+              <label><span className="field-label">Level</span><input
                 name="shelfNumber"
                 type="number"
                 min="1"
@@ -660,7 +722,7 @@ export function Library({ player, onLogout }: LibraryProps) {
                 </select>
               </label>
               {gameOrientation === "stacked" && (
-                <label>Stack on top of
+                <label><span className="field-label">Stack on top of</span>
                   <select
                     name="stackedOnId"
                     onChange={(event) => setGameStackedOnId(event.target.value)}

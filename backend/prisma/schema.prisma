@@ -10,6 +10,20 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum WishlistStatus {
+  CONSIDERING
+  WANTED
+  ORDERED
+  ACQUIRED
+  ARCHIVED
+}
+
+enum WishlistPriority {
+  LOW
+  NORMAL
+  HIGH
+}
+
 // Players who can log in or just be referenced in play logs
 model Player {
   id        String   @id @default(uuid())
@@ -26,6 +40,8 @@ model Player {
   playLogs                PlayLogParticipant[]
   gameRatings             GameRating[]
   ongoingGameParticipants OngoingGameParticipant[]
+  wishlistItems           WishlistItem[]           @relation("WishlistItemAdder")
+  wishlistInterests       WishlistInterest[]
 }
 
 // Container types for organizing games (shelf, box, etc.)
@@ -60,9 +76,10 @@ model Tag {
   createdAt DateTime @default(now())
 
   // Relations
-  games        Game[]
-  wikiEntries  WikiEntry[]
-  ambienceSets AmbienceSet[] @relation("AmbienceSetTags")
+  games         Game[]
+  wikiEntries   WikiEntry[]
+  ambienceSets  AmbienceSet[]  @relation("AmbienceSetTags")
+  wishlistItems WishlistItem[]
 
   @@index([name])
 }
@@ -100,19 +117,65 @@ model Game {
   updatedAt DateTime @updatedAt
 
   // Relations
-  tags         Tag[]
-  wikiEntries  WikiEntry[]
-  playLogs     PlayLog[]
-  ongoingGames OngoingGame[]
-  documents    GameDocument[]
-  ratings      GameRating[]
-  awards       GameAward[]
-  ambienceSets AmbienceSet[]  @relation("AmbienceSetGames")
+  tags           Tag[]
+  wikiEntries    WikiEntry[]
+  playLogs       PlayLog[]
+  ongoingGames   OngoingGame[]
+  documents      GameDocument[]
+  ratings        GameRating[]
+  awards         GameAward[]
+  ambienceSets   AmbienceSet[]  @relation("AmbienceSetGames")
+  wishlistOrigin WishlistItem?  @relation("WishlistAcquiredGame")
 
   @@index([name])
   @@index([shelfId])
   @@index([maker])
   @@index([stackedOnId])
+}
+
+model WishlistItem {
+  id                  String             @id @default(uuid())
+  title               String
+  maker               String?
+  releaseYear         Int?
+  description         String?
+  imageUrl            String?
+  sourceUrl           String?
+  minPlayers          Int?
+  maxPlayers          Int?
+  ageLimit            Int?
+  playTime            Int?
+  estimatedPriceCents BigInt?
+  currency            String?
+  notes               String?
+  status              WishlistStatus     @default(WANTED)
+  priority            WishlistPriority   @default(NORMAL)
+  addedById           String
+  addedBy             Player             @relation("WishlistItemAdder", fields: [addedById], references: [id], onDelete: Restrict)
+  tags                Tag[]
+  gameId              String?            @unique
+  game                Game?              @relation("WishlistAcquiredGame", fields: [gameId], references: [id], onDelete: SetNull)
+  acquiredAt          DateTime?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+  interests           WishlistInterest[]
+
+  @@index([status, priority, createdAt])
+  @@index([title])
+  @@index([addedById])
+}
+
+model WishlistInterest {
+  id             String       @id @default(uuid())
+  wishlistItemId String
+  wishlistItem   WishlistItem @relation(fields: [wishlistItemId], references: [id], onDelete: Cascade)
+  playerId       String
+  player         Player       @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([wishlistItemId, playerId])
+  @@index([playerId])
 }
 
 model DeletedGame {
@@ -197,6 +260,7 @@ model AmbienceLink {
   title         String
   kind          String
   uri           String
+  embed         Boolean     @default(false)
   position      Int         @default(0)
   createdAt     DateTime    @default(now())
 
@@ -204,12 +268,25 @@ model AmbienceLink {
 }
 
 // Play session log
+model GameNight {
+  id        String   @id @default(uuid())
+  startedAt DateTime @default(now())
+  endedAt   DateTime?
+
+  playLogs     PlayLog[]
+  ongoingGames OngoingGame[]
+
+  @@index([endedAt, startedAt])
+}
+
 model PlayLog {
   id          String     @id @default(uuid())
   gameId      String?
   game        Game?      @relation(fields: [gameId], references: [id], onDelete: Restrict)
   guestGameId String?
   guestGame   GuestGame? @relation(fields: [guestGameId], references: [id], onDelete: Restrict)
+  gameNightId String?
+  gameNight   GameNight? @relation(fields: [gameNightId], references: [id], onDelete: SetNull)
 
   playedAt DateTime // when the game was played
   duration Int? // in minutes
@@ -248,6 +325,8 @@ model OngoingGame {
   game                  Game?      @relation(fields: [gameId], references: [id], onDelete: Restrict)
   guestGameId           String?
   guestGame             GuestGame? @relation(fields: [guestGameId], references: [id], onDelete: Restrict)
+  gameNightId           String?
+  gameNight             GameNight? @relation(fields: [gameNightId], references: [id], onDelete: SetNull)
   startedAt             DateTime   @default(now())
   pausedAt              DateTime?
   pausedDurationSeconds Int        @default(0)

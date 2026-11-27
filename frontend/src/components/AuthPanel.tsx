@@ -60,7 +60,7 @@ export function AuthPanel({ setupRequired, onAuthenticated }: AuthPanelProps) {
         <form className="entry-form" onSubmit={handleSubmit}>
           {setupRequired && (
             <label>
-              Your name
+              <span className="field-label">Your name</span>
               <input
                 autoComplete="name"
                 maxLength={80}
@@ -71,7 +71,7 @@ export function AuthPanel({ setupRequired, onAuthenticated }: AuthPanelProps) {
             </label>
           )}
           <label>
-            Username
+            <span className="field-label">Username</span>
             <input
               autoComplete="username"
               maxLength={32}
@@ -83,7 +83,7 @@ export function AuthPanel({ setupRequired, onAuthenticated }: AuthPanelProps) {
             />
           </label>
           <label>
-            Password
+            <span className="field-label">Password</span>
             <input
               autoComplete={setupRequired ? "new-password" : "current-password"}
               maxLength={128}

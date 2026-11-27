@@ -3,7 +3,7 @@ import { z } from "zod";
 import prisma from "../lib/prisma.js";
 
 const router = Router();
-const createTagSchema = z.object({
+export const createTagSchema = z.object({
   name: z.string().trim().transform((name) => name.replace(/^#+\s*/, "")).pipe(z.string().min(1).max(40)),
 });
 

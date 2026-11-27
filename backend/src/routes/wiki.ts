@@ -4,14 +4,14 @@ import { z } from "zod";
 import prisma from "../lib/prisma.js";
 
 const router = Router();
-const idSchema = z.string().uuid();
-const categorySchema = z.object({
+export const idSchema = z.string().uuid();
+export const categorySchema = z.object({
   title: z.string().trim().min(1).max(80),
 });
-const updateCategorySchema = categorySchema
+export const updateCategorySchema = categorySchema
   .partial()
   .refine((value) => Object.keys(value).length > 0, "Provide a category title");
-const idListSchema = z.array(idSchema).max(100).refine(
+export const idListSchema = z.array(idSchema).max(100).refine(
   (ids) => new Set(ids).size === ids.length,
   "IDs must be unique",
 );
@@ -22,15 +22,15 @@ const entryFields = {
   tagIds: idListSchema,
   gameIds: idListSchema,
 };
-const createEntrySchema = z.object({
+export const createEntrySchema = z.object({
   ...entryFields,
   tagIds: idListSchema.default([]),
   gameIds: idListSchema.default([]),
 });
-const updateEntrySchema = z.object(entryFields)
+export const updateEntrySchema = z.object(entryFields)
   .partial()
   .refine((value) => Object.keys(value).length > 0, "Provide at least one entry field");
-const searchSchema = z.object({ search: z.string().trim().max(120).optional() });
+export const searchSchema = z.object({ search: z.string().trim().max(120).optional() });
 
 const entrySelect = {
   id: true,

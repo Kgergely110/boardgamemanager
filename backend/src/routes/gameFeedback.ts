@@ -2,11 +2,12 @@ import { Prisma } from "@prisma/client";
 import { Router, Request, Response } from "express";
 import { z } from "zod";
 import prisma from "../lib/prisma.js";
+import { sendApiError, sendValidationError } from "../lib/http.js";
 
 const router = Router();
-const idSchema = z.string().uuid();
+export const idSchema = z.string().uuid();
 const ratingDimensionSchema = z.number().int().min(1).max(5).nullable();
-const ratingSchema = z.object({
+export const ratingSchema = z.object({
   overall: z.number().int().min(1).max(5),
   luckFactor: ratingDimensionSchema,
   strategyDepth: ratingDimensionSchema,
@@ -16,7 +17,7 @@ const ratingSchema = z.object({
   complexity: ratingDimensionSchema,
   comment: z.string().trim().max(2000).nullable(),
 });
-const awardSchema = z.object({
+export const awardSchema = z.object({
   name: z.string().trim().min(1).max(120),
   category: z.string().trim().max(120).nullable(),
   year: z.number().int().min(1800).max(2200).nullable(),
@@ -37,13 +38,6 @@ const ratingSelect = {
   updatedAt: true,
   player: { select: { fullName: true } },
 } satisfies Prisma.GameRatingSelect;
-
-function validationError(res: Response, error: z.ZodError): void {
-  res.status(400).json({
-    error: "Invalid request",
-    details: error.flatten().fieldErrors,
-  });
-}
 
 async function findActiveGame(gameId: string): Promise<{ id: string } | null> {
   return prisma.game.findFirst({
@@ -69,7 +63,7 @@ function average(values: Array<number | null>): { average: number | null; count:
 router.get("/:gameId/reviews", async (req: Request, res: Response) => {
   const gameId = idSchema.safeParse(req.params.gameId);
   if (!gameId.success) {
-    validationError(res, gameId.error);
+    sendValidationError(res, gameId.error, "Invalid request");
     return;
   }
   if (!(await findActiveGame(gameId.data))) {
@@ -122,13 +116,13 @@ router.put("/:gameId/ratings/me", async (req: Request, res: Response) => {
   const gameId = idSchema.safeParse(req.params.gameId);
   const result = ratingSchema.safeParse(req.body);
   if (!gameId.success || !result.success) {
-    if (!gameId.success) validationError(res, gameId.error);
-    else if (!result.success) validationError(res, result.error);
+    if (!gameId.success) sendValidationError(res, gameId.error, "Invalid request");
+    else if (!result.success) sendValidationError(res, result.error, "Invalid request");
     return;
   }
   const playerId = req.user?.playerId;
   if (!playerId) {
-    res.status(401).json({ error: "Sign in to rate a game" });
+    sendApiError(res, 401, "Sign in to rate a game");
     return;
   }
   if (!(await findActiveGame(gameId.data))) {
@@ -156,12 +150,12 @@ router.put("/:gameId/ratings/me", async (req: Request, res: Response) => {
 router.delete("/:gameId/ratings/me", async (req: Request, res: Response) => {
   const gameId = idSchema.safeParse(req.params.gameId);
   if (!gameId.success) {
-    validationError(res, gameId.error);
+    sendValidationError(res, gameId.error, "Invalid request");
     return;
   }
   const playerId = req.user?.playerId;
   if (!playerId) {
-    res.status(401).json({ error: "Sign in to remove your rating" });
+    sendApiError(res, 401, "Sign in to remove your rating");
     return;
   }
   if (!(await findActiveGame(gameId.data))) {
@@ -183,8 +177,8 @@ router.post("/:gameId/awards", async (req: Request, res: Response) => {
   const gameId = idSchema.safeParse(req.params.gameId);
   const result = awardSchema.safeParse(req.body);
   if (!gameId.success || !result.success) {
-    if (!gameId.success) validationError(res, gameId.error);
-    else if (!result.success) validationError(res, result.error);
+    if (!gameId.success) sendValidationError(res, gameId.error, "Invalid request");
+    else if (!result.success) sendValidationError(res, result.error, "Invalid request");
     return;
   }
   if (!(await findActiveGame(gameId.data))) {
@@ -213,7 +207,7 @@ router.post("/:gameId/awards", async (req: Request, res: Response) => {
     res.status(201).json({ data: award });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-      res.status(409).json({ error: "This award is already recorded for the game" });
+      sendApiError(res, 409, "This award is already recorded for the game");
       return;
     }
     throw error;
@@ -224,11 +218,11 @@ router.delete("/:gameId/awards/:awardId", async (req: Request, res: Response) =>
   const gameId = idSchema.safeParse(req.params.gameId);
   const awardId = idSchema.safeParse(req.params.awardId);
   if (!gameId.success) {
-    validationError(res, gameId.error);
+    sendValidationError(res, gameId.error, "Invalid request");
     return;
   }
   if (!awardId.success) {
-    validationError(res, awardId.error);
+    sendValidationError(res, awardId.error, "Invalid request");
     return;
   }
   if (!(await findActiveGame(gameId.data))) {

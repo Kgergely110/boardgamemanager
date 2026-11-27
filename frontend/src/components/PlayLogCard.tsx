@@ -1,3 +1,4 @@
+import { Crown } from "lucide-react";
 import { PlayLog } from "../types";
 
 interface PlayLogCardProps {
@@ -20,6 +21,8 @@ export function PlayLogCard({ log, showGame = true, onEdit, onDelete }: PlayLogC
     (left, right) => (left.placement ?? Number.MAX_SAFE_INTEGER) -
       (right.placement ?? Number.MAX_SAFE_INTEGER),
   );
+  const champions = orderedParticipants.filter((participant) => participant.placement === 1);
+  const standings = orderedParticipants.filter((participant) => participant.placement !== 1);
 
   return (
     <article className="play-log-card">
@@ -54,18 +57,67 @@ export function PlayLogCard({ log, showGame = true, onEdit, onDelete }: PlayLogC
         {log.location && <span>⌖ {log.location}</span>}
         {log.game?.tags.map((tag) => <span className="play-log-card__tag" key={tag.id}>#{tag.name}</span>)}
       </div>
-      <div className="play-log-card__participants" aria-label="Participants and results">
-        {orderedParticipants.map((participant) => (
-          <div
-            className={`play-log-person ${participant.placement === 1 ? "play-log-person--winner" : ""}`}
-            key={participant.id}
-          >
-            <strong>{participant.displayName}</strong>
-            <span>{participant.placement ? `${ordinal(participant.placement)} place` : "Unranked"}</span>
-            {participant.score !== null && <span>{participant.score.toLocaleString()} pts</span>}
+      <section className="play-log-results" aria-labelledby={`results-${log.id}`}>
+        <div className="play-log-results__heading">
+          <div>
+            <span className="eyebrow">THE FINAL TABLE</span>
+            <h4 id={`results-${log.id}`}>Game results</h4>
           </div>
-        ))}
-      </div>
+          <span>{log.participants.length} {log.participants.length === 1 ? "player" : "players"}</span>
+        </div>
+        {champions.length > 0 && (
+          <div className="play-log-champions" aria-label={champions.length > 1 ? "Tied winners" : "Winner"}>
+            <div className="play-log-champions__seal">
+              <Crown aria-hidden="true" />
+              <span>1</span>
+            </div>
+            <div className="play-log-champions__content">
+              <span className="eyebrow">{champions.length > 1 ? "SHARED VICTORY" : "AT THE CROWN"}</span>
+              <ul>
+                {champions.map((participant) => (
+                  <li key={participant.id}>
+                    <strong>{participant.displayName}</strong>
+                    <span>
+                      {participant.score !== null
+                        ? <>{participant.score.toLocaleString()} <small>pts</small></>
+                        : "1st place"}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        )}
+        {standings.length > 0 && (
+          <div className="play-log-standings">
+            <div className="play-log-standings__labels" aria-hidden="true">
+              <span>Place</span><span>Player</span><span>Score</span>
+            </div>
+            <ol className="play-log-results__list">
+              {standings.map((participant) => (
+                <li
+                  aria-label={`${participant.displayName}, ${participant.placement ? `${ordinal(participant.placement)} place` : "unranked"}${participant.score !== null ? `, ${participant.score} points` : ", no score"}`}
+                  className="play-log-result"
+                  key={participant.id}
+                >
+                  <span className="play-log-result__rank" aria-hidden="true">
+                    {participant.placement ?? "—"}
+                  </span>
+                  <span className="play-log-result__player">
+                    <strong>{participant.displayName}</strong>
+                    <small>{participant.placement ? `${ordinal(participant.placement)} place` : "Unranked"}</small>
+                  </span>
+                  <span className="play-log-result__score">
+                    {participant.score !== null
+                      ? <><strong>{participant.score.toLocaleString()}</strong><small>pts</small></>
+                      : <span aria-hidden="true">—</span>}
+                  </span>
+                </li>
+              ))}
+            </ol>
+          </div>
+        )}
+      </section>
       {log.notes && <p className="play-log-card__notes">{log.notes}</p>}
     </article>
   );

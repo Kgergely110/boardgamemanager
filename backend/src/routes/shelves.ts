@@ -4,7 +4,7 @@ import prisma from "../lib/prisma.js";
 
 const router = Router();
 
-const createShelfSchema = z.object({
+export const createShelfSchema = z.object({
   name: z.string().trim().min(1).max(80),
   type: z.enum(["shelf", "cupboard", "desk", "cabinet", "other"]),
   color: z.string().trim().max(32).optional(),
@@ -15,10 +15,10 @@ const createShelfSchema = z.object({
   depth: z.number().int().min(1).max(10000).optional(),
   description: z.string().trim().max(500).optional(),
 });
-const updateShelfSchema = createShelfSchema
+export const updateShelfSchema = createShelfSchema
   .partial()
   .refine((value) => Object.keys(value).length > 0, "Provide at least one field");
-const shelfIdSchema = z.string().uuid();
+export const shelfIdSchema = z.string().uuid();
 
 router.get("/", async (_req: Request, res: Response) => {
   const shelves = await prisma.shelf.findMany({

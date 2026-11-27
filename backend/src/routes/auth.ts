@@ -4,27 +4,21 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import prisma from "../lib/prisma.js";
 import { generateToken } from "../lib/auth.js";
+import { sendApiError, sendValidationError } from "../lib/http.js";
 import { authenticateToken } from "../middlewares/auth.js";
 
 const router = Router();
 
-const credentialsSchema = z.object({
+export const credentialsSchema = z.object({
   username: z.string().trim().min(3).max(32).regex(/^[a-zA-Z0-9._-]+$/),
   password: z.string().min(8).max(128),
 });
 
-const setupSchema = credentialsSchema.extend({
+export const setupSchema = credentialsSchema.extend({
   fullName: z.string().trim().min(1).max(80),
 });
 
 class SetupClosedError extends Error {}
-
-function sendValidationError(res: Response, error: z.ZodError): void {
-  res.status(400).json({
-    error: "Invalid request",
-    details: error.flatten().fieldErrors,
-  });
-}
 
 router.get("/status", async (_req: Request, res: Response) => {
   const accountCount = await prisma.player.count({
@@ -78,21 +72,21 @@ router.post("/setup", async (req: Request, res: Response) => {
     });
   } catch (error) {
     if (error instanceof SetupClosedError) {
-      res.status(409).json({ error: "Initial setup has already been completed" });
+      sendApiError(res, 409, "Initial setup has already been completed");
       return;
     }
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2034"
     ) {
-      res.status(409).json({ error: "Initial setup has already been completed" });
+      sendApiError(res, 409, "Initial setup has already been completed");
       return;
     }
     if (
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2002"
     ) {
-      res.status(409).json({ error: "That username is already in use" });
+      sendApiError(res, 409, "That username is already in use");
       return;
     }
     throw error;
@@ -121,7 +115,7 @@ router.post("/login", async (req: Request, res: Response) => {
     player?.password &&
     (await bcrypt.compare(result.data.password, player.password));
   if (!player || !validPassword || !player.username) {
-    res.status(401).json({ error: "Invalid username or password" });
+    sendApiError(res, 401, "Invalid username or password");
     return;
   }
 
@@ -135,7 +129,7 @@ router.post("/login", async (req: Request, res: Response) => {
 router.get("/me", authenticateToken, async (req: Request, res: Response) => {
   const playerId = req.user?.playerId;
   if (!playerId) {
-    res.status(401).json({ error: "Authentication required" });
+    sendApiError(res, 401, "Authentication required");
     return;
   }
   const player = await prisma.player.findUnique({
@@ -148,7 +142,7 @@ router.get("/me", authenticateToken, async (req: Request, res: Response) => {
     },
   });
   if (!player) {
-    res.status(401).json({ error: "Account no longer exists" });
+    sendApiError(res, 401, "Account no longer exists");
     return;
   }
   res.json({ player });

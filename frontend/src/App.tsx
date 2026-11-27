@@ -9,6 +9,8 @@ import { LetsPlay } from "./pages/LetsPlay";
 import { OngoingGame } from "./pages/OngoingGame";
 import { PlayLogs } from "./pages/PlayLogs";
 import { Wiki } from "./pages/Wiki";
+import { Wishlist } from "./pages/Wishlist";
+import { scrollToPageTop } from "./lib/navigation";
 import { AuthResponse, Player } from "./types";
 import "./index.css";
 
@@ -29,6 +31,7 @@ function AuthenticatedApp({ player, onLogout }: { player: Player; onLogout: () =
       <Route path="/logs" element={<PlayLogs player={player} onLogout={logout} />} />
       <Route path="/wiki" element={<Wiki player={player} onLogout={logout} />} />
       <Route path="/ambience" element={<Ambience player={player} onLogout={logout} />} />
+      <Route path="/wishlist" element={<Wishlist player={player} onLogout={logout} />} />
       <Route path="*" element={<Library player={player} onLogout={logout} />} />
     </Routes>
   );
@@ -40,6 +43,10 @@ function App() {
   const [player, setPlayer] = useState<Player | null>(null);
   const [setupRequired, setSetupRequired] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    scrollToPageTop();
+  }, [pathname]);
 
   async function refreshEntryState() {
     setScreen("loading");
@@ -90,6 +97,8 @@ function App() {
       document.title = "The Field Guide | The Game Library";
     } else if (pathname === "/ambience") {
       document.title = "Game Atmospheres | The Game Library";
+    } else if (pathname === "/wishlist") {
+      document.title = "The Wish List | The Game Library";
     } else if (pathname.startsWith("/games/")) {
       document.title = "Game Dossier | The Game Library";
     } else {

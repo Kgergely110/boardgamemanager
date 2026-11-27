@@ -280,6 +280,10 @@ export function Wiki({ player, onLogout }: WikiProps) {
             <span className="shelf-nav__glyph"><LibraryIcon name="chronicle" /></span>
             <span>Game logs</span>
           </Link>
+          <Link className="shelf-nav__item" to="/wishlist">
+            <span className="shelf-nav__glyph"><LibraryIcon name="wishlist" /></span>
+            <span>Wishlist</span>
+          </Link>
         </div>
         <div className="rail-utility">
           <span className="rail-label">REFERENCE</span>
@@ -503,7 +507,7 @@ export function Wiki({ player, onLogout }: WikiProps) {
             </header>
             <div className="play-log-editor__fields wiki-category-editor__fields">
               <label>
-                Category title
+                <span className="field-label">Category title</span>
                 <input autoFocus defaultValue={categoryDraft.title} maxLength={80} name="title" required />
               </label>
             </div>
@@ -546,7 +550,7 @@ export function Wiki({ player, onLogout }: WikiProps) {
             </header>
             <div className="play-log-editor__fields wiki-entry-editor__fields">
               <label>
-                Entry title
+                <span className="field-label">Entry title</span>
                 <input
                   autoFocus
                   maxLength={120}
@@ -556,7 +560,7 @@ export function Wiki({ player, onLogout }: WikiProps) {
                 />
               </label>
               <label>
-                Category
+                <span className="field-label">Category</span>
                 <select
                   onChange={(event) => setEntryDraft({ ...entryDraft, categoryId: event.target.value })}
                   required
@@ -571,7 +575,7 @@ export function Wiki({ player, onLogout }: WikiProps) {
 
             <section className="wiki-markdown-editor">
               <div className="wiki-markdown-editor__heading">
-                <span>MARKDOWN</span>
+                <span className="field-label">MARKDOWN</span>
                 <div>
                   <button
                     aria-pressed={!previewing}

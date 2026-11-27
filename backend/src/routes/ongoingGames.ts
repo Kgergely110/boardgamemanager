@@ -5,22 +5,31 @@ import { getElapsedSeconds } from "../lib/ongoingGameTime.js";
 import prisma from "../lib/prisma.js";
 
 const router = Router();
-const idSchema = z.string().uuid();
+export const idSchema = z.string().uuid();
 
-const participantSchema = z.object({
+export const participantSchema = z.object({
   playerId: idSchema.optional(),
   name: z.string().trim().min(1).max(100).optional(),
 }).refine((participant) => Boolean(participant.playerId) !== Boolean(participant.name), {
   message: "Choose an app player or enter a guest name",
 });
 
-const startSchema = z.object({
+export const startSchema = z.object({
   gameId: idSchema.optional(),
   guestGameName: z.string().trim().min(1).max(120).optional(),
   location: z.string().trim().max(120).nullable().optional(),
+  gameNightId: idSchema.nullable().optional(),
   participants: z.array(participantSchema).min(1).max(100),
 }).refine((game) => Boolean(game.gameId) !== Boolean(game.guestGameName), {
   message: "Choose either a library game or a guest game name",
+});
+
+export const finishSchema = z.object({
+  results: z.array(z.object({
+    participantId: idSchema,
+    placement: z.number().int().min(1).max(100).nullable(),
+    score: z.number().int().min(-1_000_000_000).max(1_000_000_000).nullable(),
+  })).max(100).optional(),
 });
 
 const ongoingGameInclude = {
@@ -71,7 +80,7 @@ router.post("/", async (req: Request, res: Response) => {
     return;
   }
 
-  const { gameId, guestGameName, location, participants } = parsed.data;
+  const { gameId, guestGameName, location, gameNightId, participants } = parsed.data;
   const playerIds = participants.flatMap((participant) => participant.playerId ? [participant.playerId] : []);
   if (new Set(playerIds).size !== playerIds.length) {
     res.status(400).json({ error: "An app player can only be added once" });
@@ -130,6 +139,14 @@ router.post("/", async (req: Request, res: Response) => {
   }
 
   const data = await prisma.$transaction(async (transaction) => {
+    if (gameNightId) {
+      const activeNight = await transaction.gameNight.findFirst({
+        where: { id: gameNightId, endedAt: null },
+        select: { id: true },
+      });
+      if (!activeNight) return null;
+    }
+
     let guestGameId: string | null = null;
     if (guestGameName) {
       const name = guestGameName.trim().replace(/\s+/g, " ");
@@ -145,12 +162,17 @@ router.post("/", async (req: Request, res: Response) => {
       data: {
         gameId: game?.id ?? null,
         guestGameId,
+        gameNightId: gameNightId ?? null,
         location: location?.trim() || null,
         participants: { create: participantData },
       },
       include: ongoingGameInclude,
     });
   });
+  if (!data) {
+    res.status(409).json({ error: "That game night is no longer active. Refresh the page and try again." });
+    return;
+  }
   res.status(201).json({ data: includeElapsedSeconds(data) });
 });
 
@@ -253,24 +275,48 @@ router.post("/:id/finish", async (req: Request, res: Response) => {
     res.status(400).json({ error: "Invalid ongoing game id" });
     return;
   }
+  const parsedFinish = finishSchema.safeParse(req.body ?? {});
+  if (!parsedFinish.success) {
+    res.status(400).json({
+      error: "Invalid game results",
+      details: parsedFinish.error.flatten().fieldErrors,
+    });
+    return;
+  }
 
-  const data = await prisma.$transaction(async (transaction) => {
+  const result = await prisma.$transaction(async (transaction) => {
     const ongoingGame = await transaction.ongoingGame.findUnique({
       where: { id: id.data },
       include: { participants: { orderBy: { createdAt: "asc" } } },
     });
-    if (!ongoingGame) return null;
+    if (!ongoingGame) return { kind: "not-found" as const };
+
+    const results = parsedFinish.data.results;
+    if (results) {
+      const participantIds = new Set(ongoingGame.participants.map((participant) => participant.id));
+      const resultIds = new Set(results.map((result) => result.participantId));
+      if (
+        results.length !== ongoingGame.participants.length ||
+        resultIds.size !== results.length ||
+        results.some((result) => !participantIds.has(result.participantId) ||
+          (result.placement !== null && result.placement > ongoingGame.participants.length))
+      ) {
+        return { kind: "invalid-results" as const };
+      }
+    }
+    const resultsByParticipant = new Map(results?.map((result) => [result.participantId, result]) ?? []);
 
     const finishedAt = new Date();
     const elapsedSeconds = getElapsedSeconds(ongoingGame, finishedAt);
     const duration = Math.max(1, Math.round(elapsedSeconds / 60));
     const removed = await transaction.ongoingGame.deleteMany({ where: { id: ongoingGame.id } });
-    if (removed.count !== 1) return null;
+    if (removed.count !== 1) return { kind: "not-found" as const };
 
-    return transaction.playLog.create({
+    const playLog = await transaction.playLog.create({
       data: {
         gameId: ongoingGame.gameId,
         guestGameId: ongoingGame.guestGameId,
+        gameNightId: ongoingGame.gameNightId,
         playedAt: ongoingGame.startedAt,
         duration,
         location: ongoingGame.location,
@@ -278,18 +324,23 @@ router.post("/:id/finish", async (req: Request, res: Response) => {
           create: ongoingGame.participants.map((participant) => ({
             playerId: participant.playerId,
             displayName: participant.displayName,
-            placement: null,
-            score: null,
+            placement: resultsByParticipant.get(participant.id)?.placement ?? null,
+            score: resultsByParticipant.get(participant.id)?.score ?? null,
           })),
         },
       },
     });
+    return { kind: "created" as const, data: playLog };
   });
-  if (!data) {
+  if (result.kind === "not-found") {
     res.status(404).json({ error: "Ongoing game not found or already finished" });
     return;
   }
-  res.status(201).json({ data });
+  if (result.kind === "invalid-results") {
+    res.status(400).json({ error: "Provide exactly one valid result for each player at this table" });
+    return;
+  }
+  res.status(201).json({ data: result.data });
 });
 
 export default router;

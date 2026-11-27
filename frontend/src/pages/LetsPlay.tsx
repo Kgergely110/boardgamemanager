@@ -1,11 +1,14 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { X } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { DevelopmentUserMenu } from "../components/DevelopmentUserMenu";
+import { GameNightPanel } from "../components/GameNightPanel";
 import { LibraryIcon, LibraryMark } from "../components/LibraryIcon";
 import { OngoingGamesList } from "../components/OngoingGamesList";
 import { ThemePicker } from "../components/ThemePicker";
 import { api, getErrorMessage } from "../lib/api";
 import { matchesGameSearch } from "../lib/gameSearch";
+import { revealAndFocus } from "../lib/navigation";
 import { Game, Player as AppPlayer, Tag } from "../types";
 
 interface GuestGameOption {
@@ -67,12 +70,30 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
   const [newGuestName, setNewGuestName] = useState("");
   const [setupOpen, setSetupOpen] = useState(false);
   const [starting, setStarting] = useState(false);
+  const [activeGameNightId, setActiveGameNightId] = useState<string | null>(null);
+  const [gameNightReady, setGameNightReady] = useState(false);
   const [tableParticipants, setTableParticipants] = useState<TableParticipant[]>([]);
   const [participantKind, setParticipantKind] = useState<"app" | "guest">("app");
   const [selectedAppPlayerId, setSelectedAppPlayerId] = useState("");
   const [guestPlayerName, setGuestPlayerName] = useState("");
   const [playLocation, setPlayLocation] = useState("");
   const [setupError, setSetupError] = useState("");
+  const choiceRef = useRef<HTMLElement>(null);
+  const setupRef = useRef<HTMLElement>(null);
+  const handleActiveNightChange = useCallback((id: string | null) => {
+    setActiveGameNightId(id);
+    setGameNightReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (choice) revealAndFocus(choiceRef.current, ".lets-play-choice__actions .button--primary");
+  }, [choice]);
+
+  useEffect(() => {
+    if (setupOpen) {
+      revealAndFocus(setupRef.current, ".lets-play-participant-add select[required], .lets-play-participant-add input[required]");
+    }
+  }, [setupOpen]);
 
   useEffect(() => {
     let active = true;
@@ -214,7 +235,7 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
   }
 
   async function startSession() {
-    if (!canStartSession) return;
+    if (!canStartSession || !gameNightReady) return;
     if (!choice) return;
     setStarting(true);
     setSetupError("");
@@ -225,6 +246,7 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
           ? { playerId: participant.playerId }
           : { name: participant.name }),
         location: playLocation.trim() || null,
+        gameNightId: activeGameNightId,
       });
       navigate(`/lets-play/ongoing/${data.data.id}`);
     } catch (requestError) {
@@ -290,6 +312,10 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
             <span className="shelf-nav__glyph"><LibraryIcon name="chronicle" /></span>
             <span>Game logs</span>
           </Link>
+          <Link className="shelf-nav__item" to="/wishlist">
+            <span className="shelf-nav__glyph"><LibraryIcon name="wishlist" /></span>
+            <span>Wishlist</span>
+          </Link>
         </div>
         <div className="rail-utility">
           <span className="rail-label">REFERENCE</span>
@@ -325,6 +351,7 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
         </section>
 
         <OngoingGamesList />
+        <GameNightPanel onActiveNightChange={handleActiveNightChange} />
 
         {(resourceError || drawMessage) && (
           <div className={resourceError ? "notice notice--error" : "lets-play-notice"} role={resourceError ? "alert" : "status"}>
@@ -334,7 +361,7 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
         )}
 
         {choice && (
-          <section className="lets-play-choice" aria-live="polite" aria-label="Selected game">
+          <section className="lets-play-choice" aria-live="polite" aria-label="Selected game" ref={choiceRef}>
             <div className="lets-play-choice__mark"><LibraryIcon name={choice.kind === "guest" ? "collection" : "play"} /></div>
             <div className="lets-play-choice__details">
               <span className="eyebrow">{choice.kind === "guest" ? "GUEST GAME" : "YOUR NEXT GAME"}</span>
@@ -374,7 +401,7 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
         )}
 
         {choice && setupOpen && (
-          <section className="lets-play-session-setup" aria-labelledby="lets-play-session-title">
+          <section className="lets-play-session-setup" aria-labelledby="lets-play-session-title" ref={setupRef}>
             <header className="lets-play-session-setup__heading">
               <div>
                 <span className="eyebrow">SET THE TABLE</span>
@@ -408,7 +435,7 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
               </label>
               {participantKind === "app" ? (
                 <label>
-                  App player
+                  <span className="field-label">App player</span>
                   <select required value={selectedAppPlayerId} onChange={(event) => setSelectedAppPlayerId(event.target.value)}>
                     <option value="">Choose an available user</option>
                     {availableAppPlayers.map((appPlayer) => <option key={appPlayer.id} value={appPlayer.id}>{appPlayer.fullName}</option>)}
@@ -416,7 +443,7 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
                 </label>
               ) : (
                 <label>
-                  Guest name
+                  <span className="field-label">Guest name</span>
                   <input autoComplete="off" maxLength={100} required value={guestPlayerName} onChange={(event) => setGuestPlayerName(event.target.value)} placeholder="Enter a player’s name" />
                 </label>
               )}
@@ -431,39 +458,47 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
 
             {setupError && <p className="lets-play-session-setup__error" role="alert">{setupError}</p>}
 
-            <div className="lets-play-table-players" aria-live="polite">
-              {tableParticipants.length ? tableParticipants.map((participant, index) => (
-                <div className="lets-play-table-player" key={participant.id}>
-                  <span className="lets-play-table-player__number">{index + 1}</span>
-                  <span className="lets-play-table-player__name">{participant.name}</span>
-                  <span className="lets-play-table-player__type">{participant.kind === "app" ? "APP USER" : "GUEST"}</span>
-                  <button
-                    aria-label={`Remove ${participant.name}`}
-                    className="lets-play-table-player__remove"
-                    onClick={() => {
-                      setTableParticipants((current) => current.filter(({ id }) => id !== participant.id));
-                      setSetupError("");
-                    }}
-                    type="button"
-                  >
-                    Remove
-                  </button>
-                </div>
-              )) : <p className="lets-play-table-players__empty">No players added yet.</p>}
-            </div>
+            {tableParticipants.length ? (
+              <ul className="lets-play-table-players" aria-label="Players at the table" aria-live="polite">
+                {tableParticipants.map((participant, index) => (
+                  <li className="lets-play-table-player" key={participant.id}>
+                    <span className="lets-play-table-player__number" aria-hidden="true">{index + 1}</span>
+                    <span className="lets-play-table-player__identity">
+                      <span className="lets-play-table-player__name">{participant.name}</span>
+                      <small className="lets-play-table-player__type">{participant.kind === "app" ? "App user" : "Guest"}</small>
+                    </span>
+                    <button
+                      aria-label={`Remove ${participant.name}`}
+                      className="lets-play-table-player__remove"
+                      onClick={() => {
+                        setTableParticipants((current) => current.filter(({ id }) => id !== participant.id));
+                        setSetupError("");
+                      }}
+                      type="button"
+                    >
+                      <X aria-hidden="true" size={15} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="lets-play-table-players__empty" aria-live="polite">No players added yet.</p>
+            )}
 
             <label className="lets-play-location">
-              Place to play <span>OPTIONAL</span>
+              Place to play
               <input maxLength={120} value={playLocation} onChange={(event) => setPlayLocation(event.target.value)} placeholder="Home, game club, convention…" />
             </label>
 
             <footer className="lets-play-session-setup__footer">
               <span role="status">
-                {canStartSession
+                {!gameNightReady
+                  ? "Checking the game-night scorebook…"
+                  : canStartSession
                   ? "The table has enough players to start."
                   : `${minimumPlayers - tableParticipants.length} more ${minimumPlayers - tableParticipants.length === 1 ? "player" : "players"} needed to start.`}
               </span>
-              <button className="button button--primary" disabled={!canStartSession || starting} onClick={() => void startSession()} type="button">
+              <button className="button button--primary" disabled={!canStartSession || !gameNightReady || starting} onClick={() => void startSession()} type="button">
                 {starting ? "Starting…" : "Start game"}
               </button>
             </footer>
@@ -645,7 +680,7 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
                 </div>
               )}
               <form className="lets-play-new-guest" onSubmit={chooseGuestName}>
-                <label htmlFor="new-guest-game-name">Or choose a guest game by name <span className="field-requirement">Optional</span></label>
+                <label htmlFor="new-guest-game-name">Or choose a guest game by name</label>
                 <div>
                   <input id="new-guest-game-name" maxLength={120} value={newGuestName} onChange={(event) => setNewGuestName(event.target.value)} placeholder="Enter a game title…" />
                   <button className="button button--quiet" disabled={!newGuestName.trim()} type="submit">Choose title</button>

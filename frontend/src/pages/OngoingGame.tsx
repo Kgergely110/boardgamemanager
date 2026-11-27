@@ -1,12 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { DevelopmentUserMenu } from "../components/DevelopmentUserMenu";
 import { LibraryIcon, LibraryMark } from "../components/LibraryIcon";
 import { ThemePicker } from "../components/ThemePicker";
 import { api, getErrorMessage } from "../lib/api";
+import { getSpotifyEmbed } from "../lib/spotifyEmbed";
 import { AmbienceSet, OngoingGame as OngoingGameRecord, Player as AppPlayer } from "../types";
 
 type ClockAction = "pause" | "resume" | "finish";
+type CloseoutResult = { placement: string; score: string };
 
 function formatElapsed(totalSeconds: number): string {
   const hours = Math.floor(totalSeconds / 3600);
@@ -26,6 +28,8 @@ export function OngoingGame({ player, onLogout }: { player: AppPlayer; onLogout:
   const [error, setError] = useState("");
   const [clockAction, setClockAction] = useState<ClockAction | null>(null);
   const [confirmFinish, setConfirmFinish] = useState(false);
+  const [closeoutWasRunning, setCloseoutWasRunning] = useState(false);
+  const [closeoutResults, setCloseoutResults] = useState<Record<string, CloseoutResult>>({});
   const [clockNow, setClockNow] = useState(() => performance.now());
   const [clockAnchor, setClockAnchor] = useState<{ elapsedSeconds: number; capturedAt: number } | null>(null);
   const refreshVersion = useRef(0);
@@ -103,8 +107,8 @@ export function OngoingGame({ player, onLogout }: { player: AppPlayer; onLogout:
     : 0;
   const gameName = ongoingGame?.game?.name ?? ongoingGame?.guestGame?.name ?? "Ongoing game";
 
-  async function changeClock(action: Exclude<ClockAction, "finish">) {
-    if (!ongoingGame) return;
+  async function changeClock(action: Exclude<ClockAction, "finish">): Promise<boolean> {
+    if (!ongoingGame) return false;
     refreshVersion.current += 1;
     setClockAction(action);
     setError("");
@@ -115,23 +119,56 @@ export function OngoingGame({ player, onLogout }: { player: AppPlayer; onLogout:
       setClockAnchor({ elapsedSeconds: data.data.elapsedSeconds, capturedAt });
       setClockNow(capturedAt);
       refreshVersion.current += 1;
+      return true;
     } catch (requestError) {
       setError(getErrorMessage(requestError));
+      return false;
     } finally {
       setClockAction(null);
     }
   }
 
-  async function finishGame() {
+  async function openFinishForm() {
+    if (!ongoingGame || clockAction) return;
+    const wasRunning = !ongoingGame.pausedAt;
+    setCloseoutWasRunning(wasRunning);
+    if (wasRunning && !(await changeClock("pause"))) {
+      setCloseoutWasRunning(false);
+      return;
+    }
+    setCloseoutResults(Object.fromEntries(ongoingGame.participants.map((participant) => [
+      participant.id,
+      { placement: "", score: "" },
+    ])));
+    setError("");
+    setConfirmFinish(true);
+  }
+
+  async function cancelFinish() {
+    setConfirmFinish(false);
+    if (closeoutWasRunning) await changeClock("resume");
+    setCloseoutWasRunning(false);
+  }
+
+  async function finishGame(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
     if (!ongoingGame) return;
     setClockAction("finish");
     setError("");
     try {
-      await api.post(`/ongoing-games/${ongoingGame.id}/finish`);
+      await api.post(`/ongoing-games/${ongoingGame.id}/finish`, {
+        results: ongoingGame.participants.map((participant) => {
+          const result = closeoutResults[participant.id] ?? { placement: "", score: "" };
+          return {
+            participantId: participant.id,
+            placement: result.placement === "" ? null : Number(result.placement),
+            score: result.score.trim() === "" ? null : Number(result.score),
+          };
+        }),
+      });
       navigate("/logs", { replace: true });
     } catch (requestError) {
       setError(getErrorMessage(requestError));
-      setConfirmFinish(false);
     } finally {
       setClockAction(null);
     }
@@ -161,6 +198,10 @@ export function OngoingGame({ player, onLogout }: { player: AppPlayer; onLogout:
           <Link className="shelf-nav__item" to="/logs">
             <span className="shelf-nav__glyph"><LibraryIcon name="chronicle" /></span>
             <span>Game logs</span>
+          </Link>
+          <Link className="shelf-nav__item" to="/wishlist">
+            <span className="shelf-nav__glyph"><LibraryIcon name="wishlist" /></span>
+            <span>Wishlist</span>
           </Link>
         </div>
         <div className="rail-utility">
@@ -228,7 +269,7 @@ export function OngoingGame({ player, onLogout }: { player: AppPlayer; onLogout:
                       {clockAction === "pause" ? "Saving…" : "Pause clock"}
                     </button>
                   )}
-                  <button className="button button--finish" disabled={clockAction !== null} onClick={() => setConfirmFinish(true)} type="button">
+                  <button className="button button--finish" disabled={clockAction !== null} onClick={() => void openFinishForm()} type="button">
                     Finish game
                   </button>
                 </div>
@@ -252,6 +293,7 @@ export function OngoingGame({ player, onLogout }: { player: AppPlayer; onLogout:
                   </>
                 )}
                 {ongoingGame.location && <p className="ongoing-game-details__location">Playing at {ongoingGame.location}</p>}
+                {ongoingGame.gameNightId && <p className="ongoing-game-details__night">Part of tonight’s scorebook</p>}
                 <div className="ongoing-game-details__players">
                   <strong>Players ({ongoingGame.participants.length})</strong>
                   {ongoingGame.participants.map((participant) => <span key={participant.id}>{participant.displayName}</span>)}
@@ -287,13 +329,30 @@ export function OngoingGame({ player, onLogout }: { player: AppPlayer; onLogout:
                           <div className="ongoing-game-ambience__tags">{matchingTags.map((tag) => <span key={tag.id}>#{tag.name}</span>)}</div>
                         )}
                         <div className="ongoing-game-ambience__links">
-                          {set.links.map((link) => (
-                            <a href={link.uri} key={link.id} rel="noopener noreferrer" target="_blank">
-                              <small>{link.kind === "music" ? "MUSIC" : link.kind === "visual" ? "VISUAL" : "MUSIC & VISUAL"}</small>
-                              <strong>{link.title}</strong>
-                              <span aria-hidden="true">↗</span>
-                            </a>
-                          ))}
+                          {set.links.map((link) => {
+                            const spotifyEmbed = link.embed ? getSpotifyEmbed(link.uri) : null;
+                            return spotifyEmbed ? (
+                              <div className="ongoing-game-ambience__embed" key={link.id}>
+                                <span className="ongoing-game-ambience__embed-title">{link.title} · SPOTIFY</span>
+                                <iframe
+                                  allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+                                  height={spotifyEmbed.height}
+                                  loading="lazy"
+                                  referrerPolicy="strict-origin-when-cross-origin"
+                                  src={spotifyEmbed.src}
+                                  title={`Spotify player: ${link.title}`}
+                                  width="100%"
+                                />
+                                <a href={link.uri} rel="noopener noreferrer" target="_blank">Open in Spotify ↗</a>
+                              </div>
+                            ) : (
+                              <a href={link.uri} key={link.id} rel="noopener noreferrer" target="_blank">
+                                <small>{link.kind === "music" ? "MUSIC" : link.kind === "visual" ? "VISUAL" : "MUSIC & VISUAL"}</small>
+                                <strong>{link.title}</strong>
+                                <span aria-hidden="true">↗</span>
+                              </a>
+                            );
+                          })}
                         </div>
                       </article>
                     );
@@ -313,18 +372,65 @@ export function OngoingGame({ player, onLogout }: { player: AppPlayer; onLogout:
 
       {confirmFinish && ongoingGame && (
         <div className="ongoing-game-confirm-backdrop">
-          <section className="ongoing-game-confirm" role="dialog" aria-modal="true" aria-labelledby="ongoing-game-confirm-title">
+          <form className="ongoing-game-confirm" onSubmit={(event) => void finishGame(event)} role="dialog" aria-modal="true" aria-labelledby="ongoing-game-confirm-title">
             <span className="eyebrow">SAVE THIS SESSION</span>
-            <h2 id="ongoing-game-confirm-title">Finish {gameName}?</h2>
-            <p>A game log will be created with the start time, measured playtime, players, and location.</p>
+            <h2 id="ongoing-game-confirm-title">How did the table finish?</h2>
+            <p>The clock is paused while you enter results. Places are optional, ties are welcome, and placement points are 3 for first, 2 for second, and 1 for third.</p>
+            {ongoingGame.gameNightId && <p className="ongoing-game-confirm__night">This log will count toward tonight’s game-night standings.</p>}
+            <div className="ongoing-game-closeout__players">
+              {ongoingGame.participants.map((participant) => {
+                const result = closeoutResults[participant.id] ?? { placement: "", score: "" };
+                return (
+                  <fieldset className="ongoing-game-closeout__player" key={participant.id}>
+                    <legend>{participant.displayName}</legend>
+                    <label>
+                      Place
+                      <select
+                        disabled={clockAction === "finish"}
+                        onChange={(event) => setCloseoutResults((current) => ({
+                          ...current,
+                          [participant.id]: {
+                            ...(current[participant.id] ?? { placement: "", score: "" }),
+                            placement: event.target.value,
+                          },
+                        }))}
+                        value={result.placement}
+                      >
+                        <option value="">Unranked</option>
+                        {ongoingGame.participants.map((_, index) => {
+                          const place = index + 1;
+                          return <option key={place} value={place}>{place}{place === 1 ? "st" : place === 2 ? "nd" : place === 3 ? "rd" : "th"} place</option>;
+                        })}
+                      </select>
+                    </label>
+                    <label>
+                      Score <span>(optional)</span>
+                      <input
+                        disabled={clockAction === "finish"}
+                        onChange={(event) => setCloseoutResults((current) => ({
+                          ...current,
+                          [participant.id]: {
+                            ...(current[participant.id] ?? { placement: "", score: "" }),
+                            score: event.target.value,
+                          },
+                        }))}
+                        step="1"
+                        type="number"
+                        value={result.score}
+                      />
+                    </label>
+                  </fieldset>
+                );
+              })}
+            </div>
             {error && <p className="ongoing-game-confirm__error" role="alert">{error}</p>}
             <div className="ongoing-game-confirm__actions">
-              <button className="button button--quiet" disabled={clockAction === "finish"} onClick={() => setConfirmFinish(false)} type="button">Keep playing</button>
-              <button className="button button--finish" disabled={clockAction === "finish"} onClick={() => void finishGame()} type="button">
+              <button className="button button--quiet" disabled={clockAction === "finish"} onClick={() => void cancelFinish()} type="button">Keep playing</button>
+              <button className="button button--finish" disabled={clockAction === "finish"} type="submit">
                 {clockAction === "finish" ? "Saving log…" : "Finish & save log"}
               </button>
             </div>
-          </section>
+          </form>
         </div>
       )}
     </div>

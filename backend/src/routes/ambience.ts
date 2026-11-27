@@ -4,15 +4,35 @@ import { z } from "zod";
 import prisma from "../lib/prisma.js";
 
 const router = Router();
-const idSchema = z.string().uuid();
-const idsSchema = z.array(idSchema).max(200).refine(
+export const idSchema = z.string().uuid();
+export const idsSchema = z.array(idSchema).max(200).refine(
   (ids) => new Set(ids).size === ids.length,
   "IDs must not contain duplicates",
 );
 
-const linkSchema = z.object({
+const spotifyContentTypes = new Set(["album", "artist", "episode", "playlist", "show", "track"]);
+
+function isSpotifyEmbedUri(value: string): boolean {
+  const uriMatch = /^spotify:(album|artist|episode|playlist|show|track):([A-Za-z0-9]+)$/i.exec(value);
+  if (uriMatch) return spotifyContentTypes.has(uriMatch[1].toLowerCase());
+
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || url.hostname !== "open.spotify.com") return false;
+    const path = url.pathname.split("/").filter(Boolean);
+    if (path[0]?.startsWith("intl-")) path.shift();
+    if (path[0] === "embed") path.shift();
+    return spotifyContentTypes.has(path[0]?.toLowerCase() ?? "") &&
+      /^[A-Za-z0-9]+$/.test(path[1] ?? "");
+  } catch {
+    return false;
+  }
+}
+
+export const linkSchema = z.object({
   title: z.string().trim().min(1).max(100),
   kind: z.enum(["music", "visual", "both"]),
+  embed: z.boolean().default(false),
   uri: z.string().trim().min(1).max(2048).refine((value) => {
     try {
       return ["http:", "https:", "spotify:"].includes(new URL(value).protocol);
@@ -20,9 +40,24 @@ const linkSchema = z.object({
       return false;
     }
   }, "Use an HTTP(S) link or Spotify URI"),
+}).superRefine((link, context) => {
+  if (link.embed && !isSpotifyEmbedUri(link.uri)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["uri"],
+      message: "Embedded playback requires a Spotify track, album, artist, playlist, show, or episode link",
+    });
+  }
+  if (link.embed && link.kind === "visual") {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["kind"],
+      message: "Spotify embeds are audio; choose Music or Music & visual",
+    });
+  }
 });
 
-const ambienceSetSchema = z.object({
+export const ambienceSetSchema = z.object({
   name: z.string().trim().min(1).max(100),
   description: z.string().trim().max(500).nullable().optional()
     .transform((value) => value || null),
@@ -40,7 +75,7 @@ const ambienceSetInclude = {
   tags: { select: { id: true, name: true, color: true }, orderBy: { name: "asc" } },
   links: {
     orderBy: [{ position: "asc" }, { createdAt: "asc" }],
-    select: { id: true, title: true, kind: true, uri: true, position: true },
+    select: { id: true, title: true, kind: true, uri: true, embed: true, position: true },
   },
 } satisfies Prisma.AmbienceSetInclude;
 

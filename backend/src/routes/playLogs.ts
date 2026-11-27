@@ -4,9 +4,9 @@ import { z } from "zod";
 import prisma from "../lib/prisma.js";
 
 const router = Router();
-const idSchema = z.string().uuid();
+export const idSchema = z.string().uuid();
 
-const participantSchema = z.object({
+export const participantSchema = z.object({
   playerId: idSchema.optional(),
   name: z.string().trim().min(1).max(100).optional(),
   placement: z.number().int().min(1).max(1000).nullable().optional(),
@@ -15,7 +15,7 @@ const participantSchema = z.object({
   message: "Choose an app player or enter a guest name",
 });
 
-const playLogSchema = z.object({
+export const playLogSchema = z.object({
   gameId: idSchema.optional(),
   guestGameName: z.string().trim().min(1).max(120).optional(),
   playedAt: z.string().datetime({ offset: true }),
@@ -32,7 +32,7 @@ const dateOnlySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine((value) =>
   const date = new Date(`${value}T00:00:00.000Z`);
   return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 });
-const listQuerySchema = z.object({
+export const listQuerySchema = z.object({
   page: z.coerce.number().int().min(1).max(1_000_000).default(1),
   gameId: idSchema.optional(),
   guestGame: z.string().trim().max(120).optional(),
@@ -51,7 +51,7 @@ const listQuerySchema = z.object({
   (query) => query.from === undefined || query.to === undefined || query.from <= query.to,
   { message: "Start date cannot be after end date" },
 );
-const guestGameListQuerySchema = z.object({
+export const guestGameListQuerySchema = z.object({
   q: z.string().trim().max(120).optional(),
   page: z.coerce.number().int().min(1).max(1_000_000).default(1),
 });
@@ -171,6 +171,51 @@ function buildWhere(query: PlayLogFilters): Prisma.PlayLogWhereInput {
   return where;
 }
 
+function buildStatisticsSqlConditions(query: PlayLogFilters): Prisma.Sql[] {
+  const conditions: Prisma.Sql[] = [
+    Prisma.sql`(
+      (pl."gameId" IS NOT NULL AND NOT EXISTS (
+        SELECT 1 FROM "DeletedGame" dg WHERE dg."gameId" = pl."gameId"
+      ))
+      OR pl."guestGameId" IS NOT NULL
+    )`,
+  ];
+  if (query.gameId) conditions.push(Prisma.sql`pl."gameId" = ${query.gameId}`);
+  if (query.guestGame) {
+    conditions.push(Prisma.sql`EXISTS (
+      SELECT 1 FROM "GuestGame" gg
+      WHERE gg."id" = pl."guestGameId" AND gg."name" ILIKE ${`%${query.guestGame}%`}
+    )`);
+  }
+  if (query.tagId) {
+    conditions.push(Prisma.sql`EXISTS (
+      SELECT 1 FROM "_GameToTag" gt
+      WHERE gt."A" = pl."gameId" AND gt."B" = ${query.tagId}
+    )`);
+  }
+  if (query.winner) {
+    conditions.push(Prisma.sql`EXISTS (
+      SELECT 1 FROM "PlayLogParticipant" wp
+      WHERE wp."playLogId" = pl."id" AND wp."placement" = 1
+        AND wp."displayName" ILIKE ${`%${query.winner}%`}
+    )`);
+  }
+  if (query.location) conditions.push(Prisma.sql`pl."location" ILIKE ${`%${query.location}%`}`);
+  if (query.minDuration !== undefined) conditions.push(Prisma.sql`pl."duration" >= ${query.minDuration}`);
+  if (query.maxDuration !== undefined) conditions.push(Prisma.sql`pl."duration" <= ${query.maxDuration}`);
+  if (query.from) conditions.push(Prisma.sql`pl."playedAt" >= ${new Date(`${query.from}T00:00:00.000Z`)}`);
+  if (query.to) conditions.push(Prisma.sql`pl."playedAt" <= ${new Date(`${query.to}T23:59:59.999Z`)}`);
+  return conditions;
+}
+
+function includeCutoffTies<T>(items: T[], valueOf: (item: T) => number, limit = 5): T[] {
+  const cutoff = items[limit - 1];
+  if (!cutoff) return items;
+  const cutoffValue = valueOf(cutoff);
+  if (cutoffValue === 0) return items.slice(0, limit);
+  return items.filter((item, index) => index < limit || valueOf(item) === cutoffValue);
+}
+
 router.get("/guest-games", async (req: Request, res: Response) => {
   const parsed = guestGameListQuerySchema.safeParse(req.query);
   if (!parsed.success) {
@@ -214,7 +259,9 @@ router.get("/", async (req: Request, res: Response) => {
 
   const { page, ...filters } = parsed.data;
   const where = buildWhere(filters);
-  const [logs, aggregate, participantCount, uniqueParticipants, winnerGroups, gameGroups] =
+  const statisticsConditions = buildStatisticsSqlConditions(filters);
+  const statisticsWhere = Prisma.join(statisticsConditions, " AND ");
+  const [logs, aggregate, participantCount, winnerGroups, playGroups, gameStats, monthlyStats] =
     await Promise.all([
       prisma.playLog.findMany({
         where,
@@ -226,6 +273,13 @@ router.get("/", async (req: Request, res: Response) => {
             select: { id: true, name: true, tags: { select: { id: true, name: true } } },
           },
           guestGame: { select: { id: true, name: true } },
+          gameNight: {
+            select: {
+              id: true,
+              startedAt: true,
+              _count: { select: { playLogs: true } },
+            },
+          },
           participants: {
             orderBy: { createdAt: "asc" },
             select: { id: true, playerId: true, displayName: true, placement: true, score: true },
@@ -241,39 +295,67 @@ router.get("/", async (req: Request, res: Response) => {
       prisma.playLogParticipant.count({ where: { playLog: { is: where } } }),
       prisma.playLogParticipant.groupBy({
         by: ["playerId", "displayName"],
-        where: { playLog: { is: where } },
-      }),
-      prisma.playLogParticipant.groupBy({
-        by: ["playerId", "displayName"],
         where: { placement: 1, playLog: { is: where } },
         _count: { _all: true },
       }),
-      prisma.playLog.groupBy({
-        by: ["gameId", "guestGameId"],
-        where,
+      prisma.playLogParticipant.groupBy({
+        by: ["playerId", "displayName"],
+        where: { playLog: { is: where } },
         _count: { _all: true },
       }),
+      prisma.$queryRaw<{
+        gameId: string | null;
+        guestGameId: string | null;
+        plays: bigint;
+        wins: bigint;
+      }[]>(Prisma.sql`
+        SELECT pl."gameId", pl."guestGameId",
+          COUNT(*)::bigint AS "plays",
+          COALESCE(SUM((
+            SELECT COUNT(*) FROM "PlayLogParticipant" wp
+            WHERE wp."playLogId" = pl."id" AND wp."placement" = 1
+          )), 0)::bigint AS "wins"
+        FROM "PlayLog" pl
+        WHERE ${statisticsWhere}
+        GROUP BY pl."gameId", pl."guestGameId"
+      `),
+      prisma.$queryRaw<{
+        period: Date;
+        plays: bigint;
+        wins: bigint;
+      }[]>(Prisma.sql`
+        SELECT date_trunc('month', pl."playedAt") AS "period",
+          COUNT(*)::bigint AS "plays",
+          COALESCE(SUM((
+            SELECT COUNT(*) FROM "PlayLogParticipant" wp
+            WHERE wp."playLogId" = pl."id" AND wp."placement" = 1
+          )), 0)::bigint AS "wins"
+        FROM "PlayLog" pl
+        WHERE ${statisticsWhere}
+        GROUP BY date_trunc('month', pl."playedAt")
+        ORDER BY "period" ASC
+      `),
     ]);
 
-  const libraryGameIds = gameGroups.flatMap((group) => group.gameId ? [group.gameId] : []);
-  const guestGameIds = gameGroups.flatMap((group) => group.guestGameId ? [group.guestGameId] : []);
-  const [libraryGames, guestGames] = await Promise.all([
-    libraryGameIds.length
-      ? prisma.game.findMany({
-          where: { id: { in: libraryGameIds } },
-          select: { id: true, name: true },
-        })
-      : [],
+  const libraryGameIds = gameStats.flatMap((group) => group.gameId ? [group.gameId] : []);
+  const guestGameIds = gameStats.flatMap((group) => group.guestGameId ? [group.guestGameId] : []);
+  const [guestGames, taggedGames] = await Promise.all([
     guestGameIds.length
       ? prisma.guestGame.findMany({
           where: { id: { in: guestGameIds } },
           select: { id: true, name: true },
         })
       : [],
+    libraryGameIds.length
+      ? prisma.game.findMany({
+          where: { id: { in: libraryGameIds } },
+          select: { id: true, name: true, tags: { select: { id: true, name: true } } },
+        })
+      : [],
   ]);
-  const libraryGameNames = new Map(libraryGames.map((game) => [game.id, game.name]));
+  const libraryGameNames = new Map(taggedGames.map((game) => [game.id, game.name]));
   const guestGameNames = new Map(guestGames.map((game) => [game.id, game.name]));
-  const mostPlayedGames = gameGroups
+  const sortedGameInsights = gameStats
     .map((group) => ({
       gameId: group.gameId,
       guestGameId: group.guestGameId,
@@ -282,21 +364,95 @@ router.get("/", async (req: Request, res: Response) => {
         : group.guestGameId
           ? guestGameNames.get(group.guestGameId) ?? "Unknown guest game"
           : "Unknown game",
-      plays: group._count._all,
+      plays: Number(group.plays),
+      wins: Number(group.wins),
     }))
+    .sort((left, right) => right.plays - left.plays || left.name.localeCompare(right.name));
+  const topGamesByWins = includeCutoffTies(
+    [...sortedGameInsights].sort((left, right) => right.wins - left.wins || left.name.localeCompare(right.name)),
+    (item) => item.wins,
+  );
+  const mostPlayedGames = [...new Map(
+    [...includeCutoffTies(sortedGameInsights, (item) => item.plays), ...topGamesByWins]
+      .map((item) => [`${item.gameId ?? "guest"}:${item.guestGameId ?? item.name}`, item]),
+  ).values()].sort((left, right) => right.plays - left.plays || right.wins - left.wins || left.name.localeCompare(right.name));
+  const gameInsightsById = new Map(sortedGameInsights.flatMap((item) =>
+    item.gameId ? [[item.gameId, item] as const] : [],
+  ));
+  const tagInsights = new Map<string, { id: string; name: string; plays: number; wins: number }>();
+  for (const game of taggedGames) {
+    const insight = gameInsightsById.get(game.id);
+    if (!insight) continue;
+    for (const tag of game.tags) {
+      const current = tagInsights.get(tag.id) ?? { id: tag.id, name: tag.name, plays: 0, wins: 0 };
+      current.plays += insight.plays;
+      current.wins += insight.wins;
+      tagInsights.set(tag.id, current);
+    }
+  }
+  const sortedTopTags = [...tagInsights.values()]
+    .sort((left, right) => right.plays - left.plays || left.name.localeCompare(right.name));
+  const topTagsByWins = includeCutoffTies(
+    [...sortedTopTags].sort((left, right) => right.wins - left.wins || left.name.localeCompare(right.name)),
+    (item) => item.wins,
+  );
+  const topTags = [...new Map(
+    [...includeCutoffTies(sortedTopTags, (item) => item.plays), ...topTagsByWins]
+      .map((item) => [item.id, item]),
+  ).values()].sort((left, right) => right.plays - left.plays || right.wins - left.wins || left.name.localeCompare(right.name));
+  const playsByPlayer = new Map<string, {
+    playerId: string | null;
+    name: string;
+    plays: number;
+    wins: number;
+  }>();
+  for (const group of playGroups) {
+    playsByPlayer.set(`${group.playerId ?? "guest"}:${group.displayName}`, {
+      playerId: group.playerId,
+      name: group.displayName,
+      plays: group._count._all,
+      wins: 0,
+    });
+  }
+  for (const group of winnerGroups) {
+    const key = `${group.playerId ?? "guest"}:${group.displayName}`;
+    const playerInsight = playsByPlayer.get(key);
+    if (playerInsight) playerInsight.wins = group._count._all;
+  }
+  const sortedPlayerInsights = [...playsByPlayer.values()]
     .sort((left, right) => right.plays - left.plays || left.name.localeCompare(right.name))
-    .slice(0, 5);
-  const topWinners = winnerGroups
+    .map((item) => ({
+      ...item,
+      winRate: item.plays ? Math.round((item.wins / item.plays) * 100) : 0,
+    }));
+  const topPlayersByWins = includeCutoffTies(
+    [...sortedPlayerInsights].sort((left, right) => right.wins - left.wins || left.name.localeCompare(right.name)),
+    (item) => item.wins,
+  );
+  const topPlayers = [...new Map(
+    [...includeCutoffTies(sortedPlayerInsights, (item) => item.plays), ...topPlayersByWins]
+      .map((item) => [`${item.playerId ?? "guest"}:${item.name}`, item]),
+  ).values()].sort((left, right) => right.plays - left.plays || right.wins - left.wins || left.name.localeCompare(right.name));
+  const sortedTopWinners = winnerGroups
     .map((group) => ({
       playerId: group.playerId,
       name: group.displayName,
       wins: group._count._all,
     }))
-    .sort((left, right) => right.wins - left.wins || left.name.localeCompare(right.name))
-    .slice(0, 5);
+    .sort((left, right) => right.wins - left.wins || left.name.localeCompare(right.name));
+  const topWinners = includeCutoffTies(sortedTopWinners, (winner) => winner.wins);
 
   res.json({
-    data: logs,
+    data: logs.map(({ gameNight, ...log }) => ({
+      ...log,
+      gameNight: gameNight
+        ? {
+            id: gameNight.id,
+            startedAt: gameNight.startedAt,
+            gameCount: gameNight._count.playLogs,
+          }
+        : null,
+    })),
     pagination: {
       page,
       pageSize: 100,
@@ -306,11 +462,18 @@ router.get("/", async (req: Request, res: Response) => {
     statistics: {
       totalSessions: aggregate._count._all,
       totalParticipants: participantCount,
-      uniquePlayers: uniqueParticipants.length,
+      uniquePlayers: playGroups.length,
       totalDurationMinutes: aggregate._sum.duration ?? 0,
       averageDurationMinutes: aggregate._avg.duration,
       mostPlayedGames,
       topWinners,
+      topTags,
+      topPlayers,
+      monthlyActivity: monthlyStats.map((item) => ({
+        period: item.period.toISOString().slice(0, 7),
+        plays: Number(item.plays),
+        wins: Number(item.wins),
+      })),
     },
   });
 });

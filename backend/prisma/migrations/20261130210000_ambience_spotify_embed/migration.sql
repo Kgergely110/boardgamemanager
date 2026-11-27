@@ -1,0 +1,2 @@
+ALTER TABLE "AmbienceLink"
+ADD COLUMN "embed" BOOLEAN NOT NULL DEFAULT false;

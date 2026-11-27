@@ -84,9 +84,9 @@ The app will be available at:
 - Backend API: http://localhost:3001
 - PostgreSQL: localhost:5432
 
-The backend mounts the Prisma schema and regenerates Prisma Client before
-applying pending migrations on startup. Recreate the backend container after
-updating the Compose configuration so the running API uses the current schema.
+The backend applies pending migrations and regenerates Prisma Client before
+starting the API. Manual `npm run dev` starts also regenerate Prisma Client
+from the current schema.
 
 ## Database Schema Highlights
 
@@ -102,6 +102,7 @@ updating the Compose configuration so the running API uses the current schema.
 - **GameRatings & GameAwards**: Per-user reviews, game characteristics, and award history
 - **WikiEntries**: Searchable Markdown concepts, strategies, and game types
 - **AmbienceSets & AmbienceLinks**: Reusable music/visual link collections associated with games and tags
+- **WishlistItems & WishlistInterests**: Shared household wishlist with tags, priority, acquisition details, and per-player interest
 
 ## Implemented API Endpoints
 
@@ -174,6 +175,14 @@ Game ambience (all routes require authentication)
   POST   /api/ambience
   PATCH  /api/ambience/:id
   DELETE /api/ambience/:id
+
+Shared wishlist (all routes require authentication)
+  GET    /api/wishlist (search, tag/player/time/age/price filters, sorting, pagination)
+  POST   /api/wishlist
+  PATCH  /api/wishlist/:id
+  DELETE /api/wishlist/:id (archived items not linked to collection games only)
+  PUT    /api/wishlist/:id/interests/me
+  DELETE /api/wishlist/:id/interests/me
 ```
 
 Container and game management, physical game placement/orientation, image URLs
@@ -209,6 +218,10 @@ the measured active duration and removes the session from the ongoing list.
 Ambience setups collect external music and visual links and can be shared across
 games and tags. Matching setups appear during an ongoing library game; links open
 in a new tab or associated app, while the library itself does not play or host media.
+The shared wishlist records candidate games, household interest, tags, priority,
+status, and optional cost/source details. Acquiring a wishlist game through the
+library creation flow transfers its tags and links the new collection entry in
+the same database transaction.
 
 Deleting a game archives it without removing its play logs, documents, tags,
 or uploaded cover. Creating another game with the same title offers to restore
