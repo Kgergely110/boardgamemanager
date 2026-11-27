@@ -1,11 +1,10 @@
+import { Eyebrow } from "./ui";
 import { DragEvent, Fragment, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { LibraryIcon } from "./LibraryIcon";
-import { matchesGameSearch, matchesTagSearch, textSearchTerm } from "../lib/gameSearch";
+import { matchesGameSearch } from "../lib/gameSearch";
 import { Game, GameArrangementItem, Shelf } from "../types";
-
-const STACK_PIECE_HEIGHT = 56;
-const STACK_LAYER_OFFSET = 20;
+import { PhysicalGameCard } from "./PhysicalGameCard";
+import { arrangementItems, buildStackGroups, sortGames, STACK_LAYER_OFFSET, STACK_PIECE_HEIGHT } from "../lib/bookcaseLayout";
 
 interface BookcaseProps {
   shelf: Shelf;
@@ -23,293 +22,7 @@ interface BookcaseProps {
   onArrange: (shelfId: string, shelfNumber: number, items: GameArrangementItem[]) => Promise<void>;
 }
 
-interface PhysicalGameCardProps {
-  game: Game;
-  index: number;
-  query: string;
-  hoveredGameId: string | null;
-  selectedGameId: string | null;
-  arranging: boolean;
-  isDragging: boolean;
-  isStackDropTarget: boolean;
-  isDeleting: boolean;
-  isFalling: boolean;
-  arrangementSaving: boolean;
-  stackTargets: Game[];
-  isStackBase: boolean;
-  canMoveLeft: boolean;
-  canMoveRight: boolean;
-  stackIndex?: number;
-  stackCount?: number;
-  onGameHover: (gameId: string | null) => void;
-  onSelect: (gameId: string) => void;
-  onDragStart: (gameId: string, event: DragEvent<HTMLDivElement>) => void;
-  onDragEnd: () => void;
-  onDragOverStack: (gameId: string, event: DragEvent<HTMLDivElement>) => void;
-  onDropOnStack: (gameId: string, event: DragEvent<HTMLDivElement>) => void;
-  onChangeOrientation: (
-    gameId: string,
-    orientation: "vertical" | "horizontal" | "flat",
-  ) => void;
-  onStackOn: (gameId: string, targetId: string) => void;
-  onMoveStack: (gameId: string, direction: "left" | "right") => void;
-  onViewGame: (game: Game) => void;
-  onEditGame: (game: Game) => void;
-  onDeleteGame: (game: Game) => void;
-}
-
 type DropTarget = { kind: "before" | "after" | "stack"; id: string };
-
-function sortGames(left: Game, right: Game) {
-  return left.position - right.position || left.id.localeCompare(right.id);
-}
-
-function buildStackGroups(levelGames: Game[]): Game[][] {
-  const gameById = new Map(levelGames.map((game) => [game.id, game]));
-  const childrenByParent = new Map<string, Game[]>();
-  for (const game of levelGames) {
-    if (!game.stackedOnId || !gameById.has(game.stackedOnId)) continue;
-    const children = childrenByParent.get(game.stackedOnId) ?? [];
-    children.push(game);
-    childrenByParent.set(game.stackedOnId, children);
-  }
-  for (const children of childrenByParent.values()) children.sort(sortGames);
-
-  const visited = new Set<string>();
-  const groups: Game[][] = [];
-  const roots = levelGames
-    .filter((game) => !game.stackedOnId || !gameById.has(game.stackedOnId))
-    .sort(sortGames);
-
-  function collect(game: Game, group: Game[]) {
-    if (visited.has(game.id)) return;
-    visited.add(game.id);
-    group.push(game);
-    for (const child of childrenByParent.get(game.id) ?? []) collect(child, group);
-  }
-
-  for (const root of roots) {
-    const group: Game[] = [];
-    collect(root, group);
-    if (group.length) groups.push(group);
-  }
-  for (const game of [...levelGames].sort(sortGames)) {
-    if (visited.has(game.id)) continue;
-    const group: Game[] = [];
-    collect(game, group);
-    if (group.length) groups.push(group);
-  }
-  return groups;
-}
-
-function arrangementItems(groups: Game[][]): GameArrangementItem[] {
-  return groups.flatMap((group, groupIndex) =>
-    group.map((game, stackIndex) => ({
-      id: game.id,
-      order: groupIndex + 1,
-      stackedOnId: stackIndex === 0 ? null : group[stackIndex - 1].id,
-      ...(stackIndex === 0
-        ? { orientation: game.orientation === "stacked" ? "vertical" : game.orientation }
-        : {}),
-    })),
-  );
-}
-
-function HighlightedText({ text, query }: { text: string; query: string }) {
-  const term = textSearchTerm(query);
-  const index = term ? text.toLocaleLowerCase().indexOf(term) : -1;
-  if (index < 0) return <>{text}</>;
-  return (
-    <>
-      {text.slice(0, index)}
-      <mark className="search-match">{text.slice(index, index + term.length)}</mark>
-      {text.slice(index + term.length)}
-    </>
-  );
-}
-
-function PhysicalGameCard({
-  game,
-  index,
-  query,
-  hoveredGameId,
-  selectedGameId,
-  arranging,
-  isDragging,
-  isStackDropTarget,
-  isDeleting,
-  isFalling,
-  arrangementSaving,
-  stackTargets,
-  isStackBase,
-  canMoveLeft,
-  canMoveRight,
-  stackIndex,
-  stackCount,
-  onGameHover,
-  onSelect,
-  onDragStart,
-  onDragEnd,
-  onDragOverStack,
-  onDropOnStack,
-  onChangeOrientation,
-  onStackOn,
-  onMoveStack,
-  onViewGame,
-  onEditGame,
-  onDeleteGame,
-}: PhysicalGameCardProps) {
-  const isHovered = hoveredGameId === game.id;
-  const isSelected = selectedGameId === game.id;
-  const isSearchMatch = matchesGameSearch(game, query);
-  const isDimmed = hoveredGameId !== null
-    ? !isHovered && !isSearchMatch
-    : Boolean(query) && !isSearchMatch;
-  const isStackPiece = stackIndex !== undefined;
-  const stackPieceTop = isStackPiece && stackCount !== undefined
-    ? (stackCount - stackIndex - 1) * STACK_LAYER_OFFSET
-    : 0;
-
-  return (
-    <div
-      className={`physical-game-slot physical-game-slot--${game.orientation} ${isStackPiece ? "physical-game-slot--stack-piece" : ""} ${isHovered ? "is-hovered" : ""} ${isSelected ? "is-selected" : ""} ${isDragging ? "is-dragging" : ""} ${isStackDropTarget ? "is-drop-target" : ""} ${isDeleting ? "is-vanishing" : ""} ${isFalling ? "is-falling" : ""}`}
-      draggable={arranging}
-      onDragEnd={onDragEnd}
-      onDragOver={arranging ? (event) => onDragOverStack(game.id, event) : undefined}
-      onDragStart={arranging ? (event) => onDragStart(game.id, event) : undefined}
-      onDrop={arranging ? (event) => onDropOnStack(game.id, event) : undefined}
-      onMouseEnter={() => onGameHover(game.id)}
-      style={isStackPiece ? { top: `${stackPieceTop}px` } : undefined}
-    >
-      <article
-        className={`physical-game physical-game--${game.orientation} physical-game--tone-${index % 5} ${isSearchMatch ? "is-search-match" : ""} ${isHovered ? "is-hovered" : ""} ${isDimmed ? "is-dimmed" : ""} ${isSelected ? "is-selected" : ""}`}
-        title={`${game.name} by ${game.maker}`}
-      >
-        <button
-          aria-expanded={isSelected}
-          aria-label={`${game.name}, ${game.orientation}${arranging ? ", draggable" : ""}`}
-          className="physical-game__select"
-          onClick={() => onSelect(game.id)}
-          type="button"
-        >
-          {game.imageUrl && <img alt="" loading="lazy" src={game.imageUrl} />}
-          <div className="physical-game__face">
-            <span><HighlightedText text={game.maker} query={query} /></span>
-            <strong><HighlightedText text={game.name} query={query} /></strong>
-          </div>
-          {query && game.tags.some((tag) => matchesTagSearch(tag.name, query)) && (
-            <span className="physical-game__match">MATCHING TAG</span>
-          )}
-        </button>
-      </article>
-      {isSelected && !arranging && (
-        <div className="physical-game__actions" role="group" aria-label={`${game.name} actions`}>
-          <button
-            aria-label={`View details for ${game.name}`}
-            className="physical-game__action physical-game__action--details"
-            onClick={() => onViewGame(game)}
-            type="button"
-          >
-            <LibraryIcon name="collection" className="physical-game__action-icon" />
-            <span>Details</span>
-          </button>
-          <button
-            aria-label={`Edit ${game.name}`}
-            className="physical-game__action physical-game__action--edit"
-            onClick={() => {
-              onSelect(game.id);
-              onEditGame(game);
-            }}
-            type="button"
-          >
-            <span className="physical-game__action-icon" aria-hidden="true">✎</span>
-            <span>Edit</span>
-          </button>
-          <button
-            aria-label={`Delete ${game.name}`}
-            className="physical-game__action physical-game__action--delete"
-            onClick={() => {
-              onSelect(game.id);
-              onGameHover(null);
-              onDeleteGame(game);
-            }}
-            type="button"
-          >
-            <span className="physical-game__action-icon" aria-hidden="true">⌫</span>
-            <span>Delete</span>
-          </button>
-        </div>
-      )}
-      {isSelected && arranging && (
-        <div
-          className="physical-game-arrange-panel"
-          role="group"
-          aria-label={`Arrange ${game.name}`}
-          onClick={(event) => event.stopPropagation()}
-        >
-          <div className="physical-game-arrange-panel__heading">
-            <strong>Place this game</strong>
-            {isStackBase && (
-              <span className="physical-game-arrange-panel__moves">
-                <button
-                  aria-label={`Move ${game.name} left`}
-                  disabled={!canMoveLeft || arrangementSaving}
-                  onClick={() => onMoveStack(game.id, "left")}
-                  type="button"
-                >←</button>
-                <button
-                  aria-label={`Move ${game.name} right`}
-                  disabled={!canMoveRight || arrangementSaving}
-                  onClick={() => onMoveStack(game.id, "right")}
-                  type="button"
-                >→</button>
-              </span>
-            )}
-          </div>
-          <label>
-            Orientation
-            <select
-              aria-label={`Orientation for ${game.name}`}
-              disabled={arrangementSaving}
-              onChange={(event) => {
-                if (
-                  event.target.value === "vertical" ||
-                  event.target.value === "horizontal" ||
-                  event.target.value === "flat"
-                ) onChangeOrientation(game.id, event.target.value);
-              }}
-              value={game.stackedOnId ? "stacked" : game.orientation}
-            >
-              {game.stackedOnId && <option value="stacked">Stacked on another game</option>}
-              <option value="vertical">Upright</option>
-              <option value="horizontal">On its side</option>
-              <option value="flat">Flat</option>
-            </select>
-          </label>
-          <label>
-            Stack on top of
-            <select
-              aria-label={`Stack ${game.name} on another game`}
-              disabled={arrangementSaving || stackTargets.length === 0}
-              onChange={(event) => {
-                if (event.target.value) onStackOn(game.id, event.target.value);
-              }}
-              value=""
-            >
-              <option value="">Choose a stack</option>
-              {stackTargets.map((target) => (
-                <option key={target.id} value={target.id}>{target.name} · {target.maker}</option>
-              ))}
-            </select>
-          </label>
-          <span className="physical-game-arrange-panel__hint">
-            Or drag this box to another position.
-          </span>
-        </div>
-      )}
-    </div>
-  );
-}
 
 export function Bookcase({
   shelf,
@@ -377,6 +90,7 @@ export function Bookcase({
     const sourceIndex = groups.findIndex((group) => group.some((game) => game.id === draggedId));
     if (sourceIndex < 0) return null;
     const sourceGroup = groups[sourceIndex];
+    if (!sourceGroup) return null;
     const stackIndex = sourceGroup.findIndex((game) => game.id === draggedId);
     const draggedGroup = sourceGroup.slice(stackIndex);
     const remaining = groups.slice();
@@ -394,11 +108,10 @@ export function Bookcase({
     }
     const targetGroupIndex = detached.remaining.findIndex((group) => group.some((game) => game.id === targetId));
     if (targetGroupIndex < 0) return;
+    const targetGroup = detached.remaining[targetGroupIndex];
+    if (!targetGroup) return;
     const nextGroups = detached.remaining.slice();
-    nextGroups[targetGroupIndex] = [
-      ...nextGroups[targetGroupIndex],
-      ...detached.draggedGroup,
-    ];
+    nextGroups[targetGroupIndex] = [...targetGroup, ...detached.draggedGroup];
     commitArrangement(level, nextGroups);
   }
 
@@ -421,10 +134,14 @@ export function Bookcase({
   ) {
     const groupIndex = groups.findIndex((group) => group.some((game) => game.id === gameId));
     if (groupIndex < 0) return;
-    const gameIndex = groups[groupIndex].findIndex((game) => game.id === gameId);
     const group = groups[groupIndex];
+    if (!group) return;
+    const gameIndex = group.findIndex((game) => game.id === gameId);
+    if (gameIndex < 0) return;
+    const targetGame = group[gameIndex];
+    if (!targetGame) return;
     const nextGroups = groups.slice();
-    if (group[gameIndex].stackedOnId) {
+    if (targetGame.stackedOnId) {
       const prefix = group.slice(0, gameIndex);
       const suffix = group.slice(gameIndex).map((item, index) =>
         index === 0 ? { ...item, orientation } : item,
@@ -454,6 +171,7 @@ export function Bookcase({
     if (index < 0 || targetIndex < 0 || targetIndex >= groups.length) return;
     const nextGroups = groups.slice();
     const [group] = nextGroups.splice(index, 1);
+    if (!group) return;
     nextGroups.splice(targetIndex, 0, group);
     commitArrangement(level, nextGroups);
   }
@@ -494,7 +212,7 @@ export function Bookcase({
     <section className={`bookcase ${arranging ? "bookcase--arranging" : ""}`} aria-label={`${shelf.name} bookcase`}>
       <header className="bookcase__header">
         <div className="bookcase__identity">
-          <span className="eyebrow">{shelf.type.toUpperCase()} · CONTAINER</span>
+          <Eyebrow>{shelf.type.toUpperCase()} · CONTAINER</Eyebrow>
           <h3>{shelf.name}</h3>
           {shelf.description?.trim() && (
             <p className="bookcase__description">{shelf.description}</p>
@@ -525,6 +243,7 @@ export function Bookcase({
                   : "";
             const stackGroups = groups.map((group, groupIndex) => {
               const baseGame = group[0];
+              if (!baseGame) return null;
               const stackedGames = group.slice(1);
               const groupSelected = group.some((game) => game.id === selectedGameId);
               const stackExtraHeight = stackedGames.length
@@ -557,9 +276,11 @@ export function Bookcase({
                     layout
                     key={`stack-${baseGame.id}`}
                     onMouseLeave={() => onGameHover(null)}
-                    style={stackedGames.length ? {
-                      height: `calc(var(--physical-game-base-height) + ${stackExtraHeight}px)`,
-                    } : undefined}
+                    style={{
+                      ...(stackedGames.length
+                        ? { height: `calc(var(--physical-game-base-height) + ${stackExtraHeight}px)` }
+                        : {}),
+                    }}
                     transition={{ layout: { duration: 0.34, ease: [0.2, 0.8, 0.2, 1] } }}
                   >
                     {group.map((game, stackIndex) => {
@@ -568,7 +289,10 @@ export function Bookcase({
                       const gameGroupIndex = groups.findIndex((candidate) =>
                         candidate.some((item) => item.id === game.id),
                       );
-                      const gameStackIndex = groups[gameGroupIndex].findIndex((item) => item.id === game.id);
+                      const gameGroup = groups[gameGroupIndex];
+                      if (!gameGroup) return null;
+                      const gameStackIndex = gameGroup.findIndex((item) => item.id === game.id);
+                      if (gameStackIndex < 0) return null;
                       return (
                         <PhysicalGameCard
                           arrangementSaving={arrangementSaving}
@@ -599,7 +323,7 @@ export function Bookcase({
                           query={query}
                           selectedGameId={selectedGameId}
                           stackCount={stackedGames.length}
-                          stackIndex={isStackPiece ? pieceIndex : undefined}
+                          {...(isStackPiece ? { stackIndex: pieceIndex } : {})}
                           stackTargets={stackTargets}
                           arranging={arranging}
                         />

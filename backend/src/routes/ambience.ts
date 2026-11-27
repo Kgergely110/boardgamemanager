@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { Router, Request, Response } from "express";
 import { z } from "zod";
 import prisma from "../lib/prisma.js";
+import { sendApiError, sendValidationError } from "../lib/http.js";
 
 const router = Router();
 export const idSchema = z.string().uuid();
@@ -102,7 +103,7 @@ router.get("/", async (_req: Request, res: Response) => {
 router.get("/for-game/:gameId", async (req: Request, res: Response) => {
   const gameId = idSchema.safeParse(req.params.gameId);
   if (!gameId.success) {
-    res.status(400).json({ error: "Invalid game id" });
+    sendValidationError(res, gameId.error, "Invalid game id");
     return;
   }
 
@@ -111,7 +112,7 @@ router.get("/for-game/:gameId", async (req: Request, res: Response) => {
     select: { id: true, tags: { select: { id: true } } },
   });
   if (!game) {
-    res.status(404).json({ error: "Game not found" });
+    sendApiError(res, 404, "Game not found");
     return;
   }
 
@@ -132,15 +133,12 @@ router.get("/for-game/:gameId", async (req: Request, res: Response) => {
 router.post("/", async (req: Request, res: Response) => {
   const parsed = ambienceSetSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({
-      error: "Invalid ambience setup",
-      details: parsed.error.flatten().fieldErrors,
-    });
+    sendValidationError(res, parsed.error, "Invalid ambience setup");
     return;
   }
   const input = parsed.data;
   if (!(await validateAssociations(input.gameIds, input.tagIds))) {
-    res.status(400).json({ error: "One or more selected games or tags could not be found" });
+    sendApiError(res, 422, "One or more selected games or tags could not be found");
     return;
   }
 
@@ -160,20 +158,17 @@ router.post("/", async (req: Request, res: Response) => {
 router.patch("/:id", async (req: Request, res: Response) => {
   const id = idSchema.safeParse(req.params.id);
   if (!id.success) {
-    res.status(400).json({ error: "Invalid ambience setup id" });
+    sendValidationError(res, id.error, "Invalid ambience setup id");
     return;
   }
   const parsed = ambienceSetSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({
-      error: "Invalid ambience setup",
-      details: parsed.error.flatten().fieldErrors,
-    });
+    sendValidationError(res, parsed.error, "Invalid ambience setup");
     return;
   }
   const input = parsed.data;
   if (!(await validateAssociations(input.gameIds, input.tagIds))) {
-    res.status(400).json({ error: "One or more selected games or tags could not be found" });
+    sendApiError(res, 422, "One or more selected games or tags could not be found");
     return;
   }
 
@@ -182,7 +177,7 @@ router.patch("/:id", async (req: Request, res: Response) => {
     select: { id: true },
   });
   if (!exists) {
-    res.status(404).json({ error: "Ambience setup not found" });
+    sendApiError(res, 404, "Ambience setup not found");
     return;
   }
 
@@ -206,12 +201,12 @@ router.patch("/:id", async (req: Request, res: Response) => {
 router.delete("/:id", async (req: Request, res: Response) => {
   const id = idSchema.safeParse(req.params.id);
   if (!id.success) {
-    res.status(400).json({ error: "Invalid ambience setup id" });
+    sendValidationError(res, id.error, "Invalid ambience setup id");
     return;
   }
   const deleted = await prisma.ambienceSet.deleteMany({ where: { id: id.data } });
   if (deleted.count !== 1) {
-    res.status(404).json({ error: "Ambience setup not found" });
+    sendApiError(res, 404, "Ambience setup not found");
     return;
   }
   res.status(204).end();

@@ -1,3 +1,4 @@
+import { Button, Eyebrow, FeedbackMessage } from "./ui";
 import { FormEvent, useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { LibraryIcon } from "./LibraryIcon";
@@ -59,14 +60,14 @@ export function DevelopmentUserMenu({ player }: DevelopmentUserMenuProps) {
   return (
     <div className="dev-user-menu">
       <span className="rail-label">DEVELOPMENT</span>
-      <button
+      <Button
         className="shelf-nav__item dev-user-menu__trigger"
         onClick={() => setIsOpen(true)}
         type="button"
       >
         <span className="shelf-nav__glyph"><LibraryIcon name="user" /></span>
         <span>Add a user</span>
-      </button>
+      </Button>
 
       {isOpen && createPortal(
         <div className="play-log-modal-backdrop">
@@ -79,10 +80,10 @@ export function DevelopmentUserMenu({ player }: DevelopmentUserMenuProps) {
           >
             <header className="play-log-editor__heading">
               <div>
-                <span className="eyebrow">LOCAL DEVELOPMENT</span>
+                <Eyebrow>LOCAL DEVELOPMENT</Eyebrow>
                 <h2 id="dev-user-editor-title">Add a user</h2>
               </div>
-              <button
+              <Button
                 aria-label="Close user form"
                 className="play-log-editor__close"
                 disabled={isSaving}
@@ -90,7 +91,7 @@ export function DevelopmentUserMenu({ player }: DevelopmentUserMenuProps) {
                 type="button"
               >
                 ×
-              </button>
+              </Button>
             </header>
             <div className="play-log-editor__fields dev-user-editor__fields">
               <label>
@@ -120,15 +121,28 @@ export function DevelopmentUserMenu({ player }: DevelopmentUserMenuProps) {
                 />
               </label>
             </div>
-            {error && <p className="form-error dev-user-editor__message" role="alert">{error}</p>}
-            {notice && <p className="dev-user-editor__success" role="status">{notice}</p>}
+            {error && (
+              <FeedbackMessage
+                className="form-error dev-user-editor__message"
+                message={error}
+                onDismiss={() => setError("")}
+              />
+            )}
+            {notice && (
+              <FeedbackMessage
+                className="dev-user-editor__success"
+                message={notice}
+                onDismiss={() => setNotice("")}
+                tone="success"
+              />
+            )}
             <div className="play-log-editor__footer">
-              <button className="button button--quiet" disabled={isSaving} onClick={close} type="button">
+              <Button className="button button--quiet" disabled={isSaving} onClick={close} type="button">
                 Cancel
-              </button>
-              <button className="button button--primary" disabled={isSaving} type="submit">
+              </Button>
+              <Button className="button button--primary" disabled={isSaving} type="submit">
                 {isSaving ? "Creating…" : "Create user"}
-              </button>
+              </Button>
             </div>
           </form>
         </div>,

@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { Router, Request, Response } from "express";
 import { z } from "zod";
 import prisma from "../lib/prisma.js";
+import { sendApiError, sendValidationError } from "../lib/http.js";
 
 const router = Router();
 export const idSchema = z.string().uuid();
@@ -89,7 +90,7 @@ async function resolveGameReference(
 async function resolveParticipants(participants: ParticipantInput[]) {
   const playerIds = participants.flatMap((participant) => participant.playerId ? [participant.playerId] : []);
   if (new Set(playerIds).size !== playerIds.length) {
-    return { error: "An app player can only be listed once in a game log" as const };
+    return { success: false as const, error: "An app player can only be listed once in a game log" };
   }
 
   const players = playerIds.length
@@ -99,7 +100,7 @@ async function resolveParticipants(participants: ParticipantInput[]) {
       })
     : [];
   if (players.length !== playerIds.length) {
-    return { error: "One or more selected app players could not be found" as const };
+    return { success: false as const, error: "One or more selected app players could not be found" };
   }
 
   const playersById = new Map(players.map((player) => [player.id, player]));
@@ -114,7 +115,7 @@ async function resolveParticipants(participants: ParticipantInput[]) {
       ? playersById.get(participant.playerId)?.fullName
       : participant.name;
     if (!displayName) {
-      return { error: "One or more selected app players could not be found" as const };
+      return { success: false as const, error: "One or more selected app players could not be found" };
     }
     data.push({
       playerId: participant.playerId ?? null,
@@ -123,7 +124,7 @@ async function resolveParticipants(participants: ParticipantInput[]) {
       score: participant.score ?? null,
     });
   }
-  return { data };
+  return { success: true as const, data };
 }
 
 function buildWhere(query: PlayLogFilters): Prisma.PlayLogWhereInput {
@@ -219,10 +220,7 @@ function includeCutoffTies<T>(items: T[], valueOf: (item: T) => number, limit = 
 router.get("/guest-games", async (req: Request, res: Response) => {
   const parsed = guestGameListQuerySchema.safeParse(req.query);
   if (!parsed.success) {
-    res.status(400).json({
-      error: "Invalid guest game search",
-      details: parsed.error.flatten().fieldErrors,
-    });
+    sendValidationError(res, parsed.error, "Invalid guest game search");
     return;
   }
 
@@ -250,10 +248,7 @@ router.get("/guest-games", async (req: Request, res: Response) => {
 router.get("/", async (req: Request, res: Response) => {
   const parsed = listQuerySchema.safeParse(req.query);
   if (!parsed.success) {
-    res.status(400).json({
-      error: "Invalid play log filters",
-      details: parsed.error.flatten().fieldErrors,
-    });
+    sendValidationError(res, parsed.error, "Invalid play log filters");
     return;
   }
 
@@ -481,22 +476,19 @@ router.get("/", async (req: Request, res: Response) => {
 router.post("/", async (req: Request, res: Response) => {
   const parsed = playLogSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({
-      error: "Invalid play log",
-      details: parsed.error.flatten().fieldErrors,
-    });
+    sendValidationError(res, parsed.error, "Invalid play log");
     return;
   }
 
   const { participants, gameId, guestGameName, ...playLogData } = parsed.data;
   const resolved = await resolveParticipants(participants);
-  if ("error" in resolved) {
-    res.status(400).json({ error: resolved.error });
+  if (!resolved.success) {
+    sendApiError(res, 422, resolved.error);
     return;
   }
   const gameReference = await resolveGameReference({ gameId, guestGameName });
   if (!gameReference) {
-    res.status(404).json({ error: gameId ? "Game not found" : "Guest game name is required" });
+    sendApiError(res, 404, gameId ? "Game not found" : "Guest game name is required");
     return;
   }
 
@@ -519,11 +511,12 @@ router.post("/", async (req: Request, res: Response) => {
 router.put("/:id", async (req: Request, res: Response) => {
   const id = idSchema.safeParse(req.params.id);
   const parsed = playLogSchema.safeParse(req.body);
-  if (!id.success || !parsed.success) {
-    res.status(400).json({
-      error: "Invalid play log update",
-      ...(parsed.success ? {} : { details: parsed.error.flatten().fieldErrors }),
-    });
+  if (!id.success) {
+    sendValidationError(res, id.error, "Invalid play log update");
+    return;
+  }
+  if (!parsed.success) {
+    sendValidationError(res, parsed.error, "Invalid play log update");
     return;
   }
 
@@ -538,18 +531,18 @@ router.put("/:id", async (req: Request, res: Response) => {
     select: { id: true },
   });
   if (!existing) {
-    res.status(404).json({ error: "Play log not found" });
+    sendApiError(res, 404, "Play log not found");
     return;
   }
   const { participants, gameId, guestGameName, ...playLogData } = parsed.data;
   const resolved = await resolveParticipants(participants);
-  if ("error" in resolved) {
-    res.status(400).json({ error: resolved.error });
+  if (!resolved.success) {
+    sendApiError(res, 422, resolved.error);
     return;
   }
   const gameReference = await resolveGameReference({ gameId, guestGameName });
   if (!gameReference) {
-    res.status(404).json({ error: gameId ? "Game not found" : "Guest game name is required" });
+    sendApiError(res, 404, gameId ? "Game not found" : "Guest game name is required");
     return;
   }
 
@@ -577,7 +570,7 @@ router.put("/:id", async (req: Request, res: Response) => {
 router.delete("/:id", async (req: Request, res: Response) => {
   const id = idSchema.safeParse(req.params.id);
   if (!id.success) {
-    res.status(400).json({ error: "Invalid play log id" });
+    sendValidationError(res, id.error, "Invalid play log id");
     return;
   }
   const existing = await prisma.playLog.findFirst({
@@ -591,7 +584,7 @@ router.delete("/:id", async (req: Request, res: Response) => {
     select: { id: true },
   });
   if (!existing) {
-    res.status(404).json({ error: "Play log not found" });
+    sendApiError(res, 404, "Play log not found");
     return;
   }
   await prisma.playLog.delete({ where: { id: existing.id } });

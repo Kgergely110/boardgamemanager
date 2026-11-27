@@ -67,7 +67,7 @@ router.get("/:gameId/reviews", async (req: Request, res: Response) => {
     return;
   }
   if (!(await findActiveGame(gameId.data))) {
-    res.status(404).json({ error: "Game not found" });
+    sendApiError(res, 404, "Game not found");
     return;
   }
 
@@ -126,7 +126,7 @@ router.put("/:gameId/ratings/me", async (req: Request, res: Response) => {
     return;
   }
   if (!(await findActiveGame(gameId.data))) {
-    res.status(404).json({ error: "Game not found" });
+    sendApiError(res, 404, "Game not found");
     return;
   }
 
@@ -159,7 +159,7 @@ router.delete("/:gameId/ratings/me", async (req: Request, res: Response) => {
     return;
   }
   if (!(await findActiveGame(gameId.data))) {
-    res.status(404).json({ error: "Game not found" });
+    sendApiError(res, 404, "Game not found");
     return;
   }
 
@@ -167,7 +167,7 @@ router.delete("/:gameId/ratings/me", async (req: Request, res: Response) => {
     where: { gameId: gameId.data, playerId },
   });
   if (deleted.count === 0) {
-    res.status(404).json({ error: "Your rating was not found" });
+    sendApiError(res, 404, "Your rating was not found");
     return;
   }
   res.status(204).end();
@@ -182,7 +182,7 @@ router.post("/:gameId/awards", async (req: Request, res: Response) => {
     return;
   }
   if (!(await findActiveGame(gameId.data))) {
-    res.status(404).json({ error: "Game not found" });
+    sendApiError(res, 404, "Game not found");
     return;
   }
 
@@ -226,14 +226,14 @@ router.delete("/:gameId/awards/:awardId", async (req: Request, res: Response) =>
     return;
   }
   if (!(await findActiveGame(gameId.data))) {
-    res.status(404).json({ error: "Game not found" });
+    sendApiError(res, 404, "Game not found");
     return;
   }
   const deleted = await prisma.gameAward.deleteMany({
     where: { id: awardId.data, gameId: gameId.data },
   });
   if (deleted.count === 0) {
-    res.status(404).json({ error: "Award not found" });
+    sendApiError(res, 404, "Award not found");
     return;
   }
   res.status(204).end();

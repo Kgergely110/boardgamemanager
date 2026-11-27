@@ -1,15 +1,20 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { Eyebrow, FeedbackMessage, Panel } from "./ui";
 import { api, getErrorMessage } from "../lib/api";
 import { OngoingGame } from "../types";
+
+const REFRESH_INTERVAL_MS = 15_000;
 
 export function OngoingGamesList() {
   const [games, setGames] = useState<OngoingGame[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [revision, setRevision] = useState(0);
 
   useEffect(() => {
     let active = true;
+    let timeoutId: number | undefined;
     async function loadOngoingGames() {
       try {
         const { data } = await api.get<{ data: OngoingGame[] }>("/ongoing-games");
@@ -20,28 +25,40 @@ export function OngoingGamesList() {
       } catch (requestError) {
         if (active) setError(getErrorMessage(requestError));
       } finally {
-        if (active) setLoading(false);
+        if (active) {
+          setLoading(false);
+          timeoutId = window.setTimeout(() => void loadOngoingGames(), REFRESH_INTERVAL_MS);
+        }
       }
     }
 
     void loadOngoingGames();
-    const intervalId = window.setInterval(() => void loadOngoingGames(), 15_000);
     return () => {
       active = false;
-      window.clearInterval(intervalId);
+      if (timeoutId !== undefined) window.clearTimeout(timeoutId);
     };
-  }, []);
+  }, [revision]);
 
   if (loading && games.length === 0 && !error) return null;
   if (games.length === 0 && !error) return null;
 
   return (
-    <section className="ongoing-games" aria-labelledby="ongoing-games-title">
+    <Panel as="section" className="ongoing-games" aria-labelledby="ongoing-games-title">
       <header className="ongoing-games__heading">
-        <div><span className="eyebrow">AT THE TABLE NOW</span><h2 id="ongoing-games-title">Ongoing games</h2></div>
+        <div><Eyebrow>AT THE TABLE NOW</Eyebrow><h2 id="ongoing-games-title">Ongoing games</h2></div>
         <span>{games.length} in progress</span>
       </header>
-      {error && <p className="ongoing-games__error" role="alert">{error}</p>}
+      {error && (
+        <FeedbackMessage
+          className="ongoing-games__error"
+          message={error}
+          onDismiss={() => setError("")}
+          onRetry={() => {
+            setLoading(true);
+            setRevision((value) => value + 1);
+          }}
+        />
+      )}
       <div className="ongoing-games__list">
         {games.map((game) => (
           <Link className="ongoing-game-card" key={game.id} to={`/lets-play/ongoing/${game.id}`}>
@@ -59,6 +76,6 @@ export function OngoingGamesList() {
           </Link>
         ))}
       </div>
-    </section>
+    </Panel>
   );
 }

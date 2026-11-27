@@ -23,7 +23,7 @@ import {
   tagAssociationSchema,
   updateDocumentSchema,
   updateGameSchema,
-} from "./routes/games.js";
+} from "./schemas/games.js";
 import { awardSchema, ratingSchema } from "./routes/gameFeedback.js";
 import {
   guestGameListQuerySchema,
@@ -60,8 +60,18 @@ const apiErrorSchema = registry.register(
   "ApiError",
   z.object({
     error: z.string(),
-    code: z.string().optional(),
-    details: z.record(z.array(z.string())).optional(),
+    code: z.enum([
+      "VALIDATION_ERROR",
+      "UNAUTHENTICATED",
+      "FORBIDDEN",
+      "NOT_FOUND",
+      "CONFLICT",
+      "PAYLOAD_TOO_LARGE",
+      "UNPROCESSABLE_ENTITY",
+      "INTERNAL_SERVER_ERROR",
+      "REQUEST_ERROR",
+    ]),
+    details: z.record(z.string(), z.array(z.string())).optional(),
   }).passthrough(),
 );
 const jsonResponseSchema = registry.register("JsonResponse", z.object({}).passthrough());
@@ -95,8 +105,18 @@ interface RouteDefinition {
 function response(status: number) {
   if (status === 204) return { description: "The operation completed successfully." };
   if (status >= 400) {
+    const description = {
+      400: "The request body, query, or path parameter is invalid.",
+      401: "Authentication is required or the supplied token is invalid.",
+      403: "The authenticated player is not permitted to perform this operation.",
+      404: "The requested resource does not exist.",
+      409: "The request conflicts with the current resource state.",
+      413: "The uploaded payload exceeds the allowed size.",
+      422: "The request is valid in form but violates a business rule.",
+      500: "An unexpected server error occurred.",
+    }[status] ?? "The request failed.";
     return {
-      description: "The request failed.",
+      description,
       content: { "application/json": { schema: apiErrorSchema } },
     };
   }
@@ -107,7 +127,7 @@ function response(status: number) {
 }
 
 function addRoute(route: RouteDefinition): void {
-  const errorStatuses = route.errors ?? [400, 401, 404, 409, 422];
+  const errorStatuses = route.errors ?? [400, 401, 404, 409];
   const responses = {
     [route.success]: response(route.success),
     ...Object.fromEntries([...errorStatuses, 500].map((status) => [status, response(status)])),
@@ -150,17 +170,17 @@ const routes: RouteDefinition[] = [
   { method: "delete", path: "/api/shelves/{id}", tag: "Shelves", summary: "Delete an empty storage container", success: 204, params: idParams },
   { method: "get", path: "/api/games", tag: "Games", summary: "Search and list library games", success: 200, query: gameListQuerySchema },
   { method: "get", path: "/api/games/collection-pulse", tag: "Games", summary: "Get recent collection activity", success: 200 },
-  { method: "post", path: "/api/games", tag: "Games", summary: "Add a game to the library", success: 201, body: createGameSchema },
+  { method: "post", path: "/api/games", tag: "Games", summary: "Add a game to the library", success: 201, body: createGameSchema, errors: [400, 401, 404, 409, 422] },
   { method: "get", path: "/api/games/deleted-matches", tag: "Games", summary: "Find archived games by name", success: 200, query: deletedMatchQuerySchema },
-  { method: "post", path: "/api/games/restore", tag: "Games", summary: "Restore an archived game", success: 200, body: restoreGameSchema },
-  { method: "put", path: "/api/games/arrangement", tag: "Games", summary: "Save a shelf arrangement", success: 200, body: arrangementSchema },
+  { method: "post", path: "/api/games/restore", tag: "Games", summary: "Restore an archived game", success: 200, body: restoreGameSchema, errors: [400, 401, 404, 409, 422] },
+  { method: "put", path: "/api/games/arrangement", tag: "Games", summary: "Save a shelf arrangement", success: 200, body: arrangementSchema, errors: [400, 401, 409, 422] },
   { method: "get", path: "/api/games/{id}", tag: "Games", summary: "Get a game and its documents", success: 200, params: idParams },
   { method: "post", path: "/api/games/{id}/documents", tag: "Game documents", summary: "Add a game document", success: 201, params: idParams, body: createDocumentSchema },
   { method: "patch", path: "/api/games/{id}/documents/{documentId}", tag: "Game documents", summary: "Update a game document", success: 200, params: documentParams, body: updateDocumentSchema },
   { method: "delete", path: "/api/games/{id}/documents/{documentId}", tag: "Game documents", summary: "Delete a game document", success: 204, params: documentParams },
   { method: "post", path: "/api/games/{id}/tags", tag: "Tags", summary: "Assign a tag to a game", success: 200, params: idParams, body: tagAssociationSchema },
   { method: "delete", path: "/api/games/{id}/tags/{tagId}", tag: "Tags", summary: "Remove a tag from a game", success: 200, params: gameTagParams },
-  { method: "patch", path: "/api/games/{id}", tag: "Games", summary: "Update a library game", success: 200, params: idParams, body: updateGameSchema },
+  { method: "patch", path: "/api/games/{id}", tag: "Games", summary: "Update a library game", success: 200, params: idParams, body: updateGameSchema, errors: [400, 401, 404, 409, 422] },
   { method: "delete", path: "/api/games/{id}", tag: "Games", summary: "Archive a library game", success: 200, params: idParams },
   { method: "post", path: "/api/games/{id}/image", tag: "Games", summary: "Upload a game image", success: 200, params: idParams, body: z.object({ image: z.string().openapi({ format: "binary" }) }), bodyMediaType: "multipart/form-data", errors: [400, 401, 404, 413] },
   { method: "get", path: "/api/tags", tag: "Tags", summary: "List tags used by library games", success: 200 },
@@ -173,8 +193,8 @@ const routes: RouteDefinition[] = [
   { method: "delete", path: "/api/games/{gameId}/awards/{awardId}", tag: "Game feedback", summary: "Delete a game award", success: 204, params: awardParams },
   { method: "get", path: "/api/play-logs/guest-games", tag: "Play logs", summary: "Search guest games used in play logs", success: 200, query: guestGameListQuerySchema },
   { method: "get", path: "/api/play-logs", tag: "Play logs", summary: "List play logs and filtered statistics", success: 200, query: playLogListQuerySchema },
-  { method: "post", path: "/api/play-logs", tag: "Play logs", summary: "Create a play log", success: 201, body: playLogSchema },
-  { method: "put", path: "/api/play-logs/{id}", tag: "Play logs", summary: "Replace a play log", success: 200, params: idParams, body: playLogSchema },
+  { method: "post", path: "/api/play-logs", tag: "Play logs", summary: "Create a play log", success: 201, body: playLogSchema, errors: [400, 401, 404, 422] },
+  { method: "put", path: "/api/play-logs/{id}", tag: "Play logs", summary: "Replace a play log", success: 200, params: idParams, body: playLogSchema, errors: [400, 401, 404, 422] },
   { method: "delete", path: "/api/play-logs/{id}", tag: "Play logs", summary: "Delete a play log", success: 204, params: idParams },
   { method: "get", path: "/api/game-nights", tag: "Game nights", summary: "List recent game nights", success: 200 },
   { method: "get", path: "/api/game-nights/{id}", tag: "Game nights", summary: "Get a game-night recap", success: 200, params: z.object({ id: gameNightIdSchema }) },
@@ -190,8 +210,8 @@ const routes: RouteDefinition[] = [
   { method: "post", path: "/api/wiki/categories", tag: "Wiki", summary: "Create a glossary category", success: 201, body: categorySchema },
   { method: "patch", path: "/api/wiki/categories/{id}", tag: "Wiki", summary: "Update a glossary category", success: 200, params: z.object({ id: wikiIdSchema }), body: updateCategorySchema },
   { method: "delete", path: "/api/wiki/categories/{id}", tag: "Wiki", summary: "Delete an empty glossary category", success: 204, params: z.object({ id: wikiIdSchema }) },
-  { method: "post", path: "/api/wiki/entries", tag: "Wiki", summary: "Create a glossary entry", success: 201, body: createEntrySchema },
-  { method: "patch", path: "/api/wiki/entries/{id}", tag: "Wiki", summary: "Update a glossary entry", success: 200, params: z.object({ id: wikiIdSchema }), body: updateEntrySchema },
+  { method: "post", path: "/api/wiki/entries", tag: "Wiki", summary: "Create a glossary entry", success: 201, body: createEntrySchema, errors: [400, 401, 409, 422] },
+  { method: "patch", path: "/api/wiki/entries/{id}", tag: "Wiki", summary: "Update a glossary entry", success: 200, params: z.object({ id: wikiIdSchema }), body: updateEntrySchema, errors: [400, 401, 404, 409, 422] },
   { method: "delete", path: "/api/wiki/entries/{id}", tag: "Wiki", summary: "Delete a glossary entry", success: 204, params: z.object({ id: wikiIdSchema }) },
   { method: "get", path: "/api/ambience", tag: "Ambience", summary: "List ambience setups", success: 200 },
   { method: "get", path: "/api/ambience/for-game/{gameId}", tag: "Ambience", summary: "Find ambience setups for a game", success: 200, params: gameIdParams },
@@ -199,8 +219,8 @@ const routes: RouteDefinition[] = [
   { method: "patch", path: "/api/ambience/{id}", tag: "Ambience", summary: "Replace an ambience setup", success: 200, params: z.object({ id: ambienceIdSchema }), body: ambienceSetSchema, errors: [400, 401, 404, 422] },
   { method: "delete", path: "/api/ambience/{id}", tag: "Ambience", summary: "Delete an ambience setup", success: 204, params: z.object({ id: ambienceIdSchema }) },
   { method: "get", path: "/api/wishlist", tag: "Wishlist", summary: "List and filter wishlist items", success: 200, query: wishlistListQuerySchema },
-  { method: "post", path: "/api/wishlist", tag: "Wishlist", summary: "Add a game to the wishlist", success: 201, body: createWishlistItemSchema },
-  { method: "patch", path: "/api/wishlist/{id}", tag: "Wishlist", summary: "Update a wishlist item", success: 200, params: interestParams, body: updateWishlistItemSchema },
+  { method: "post", path: "/api/wishlist", tag: "Wishlist", summary: "Add a game to the wishlist", success: 201, body: createWishlistItemSchema, errors: [400, 401, 422] },
+  { method: "patch", path: "/api/wishlist/{id}", tag: "Wishlist", summary: "Update a wishlist item", success: 200, params: interestParams, body: updateWishlistItemSchema, errors: [400, 401, 404, 409, 422] },
   { method: "delete", path: "/api/wishlist/{id}", tag: "Wishlist", summary: "Permanently remove an archived wishlist item", success: 204, params: interestParams, errors: [400, 401, 404, 409] },
   { method: "put", path: "/api/wishlist/{id}/interests/me", tag: "Wishlist", summary: "Register the current player's interest", success: 204, params: interestParams, errors: [400, 401, 404, 409] },
   { method: "delete", path: "/api/wishlist/{id}/interests/me", tag: "Wishlist", summary: "Remove the current player's interest", success: 204, params: interestParams, errors: [400, 401, 404] },

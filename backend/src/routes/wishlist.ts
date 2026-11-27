@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { Router, Request, Response } from "express";
 import { z } from "zod";
 import prisma from "../lib/prisma.js";
+import { sendApiError, sendValidationError } from "../lib/http.js";
 
 const router = Router();
 export const idSchema = z.string().uuid();
@@ -106,7 +107,7 @@ function presentItem(item: WishlistItemRecord) {
 }
 
 function validationError(res: Response, error: z.ZodError): void {
-  res.status(400).json({ error: "Invalid wishlist request", details: error.flatten().fieldErrors });
+  sendValidationError(res, error, "Invalid wishlist request");
 }
 
 async function tagIdsExist(tagIds: string[] | undefined): Promise<boolean> {
@@ -123,7 +124,7 @@ router.get("/", async (req: Request, res: Response) => {
   }
   const playerId = req.user?.playerId;
   if (!playerId) {
-    res.status(401).json({ error: "Sign in to browse the wishlist" });
+    sendApiError(res, 401, "Sign in to browse the wishlist");
     return;
   }
 
@@ -214,11 +215,11 @@ router.post("/", async (req: Request, res: Response) => {
   }
   const playerId = req.user?.playerId;
   if (!playerId) {
-    res.status(401).json({ error: "Sign in to add a game to the wishlist" });
+    sendApiError(res, 401, "Sign in to add a game to the wishlist");
     return;
   }
   if (!(await tagIdsExist(result.data.tagIds))) {
-    res.status(400).json({ error: "One or more selected tags no longer exist" });
+    sendApiError(res, 422, "One or more selected tags no longer exist");
     return;
   }
 
@@ -246,7 +247,7 @@ router.patch("/:id", async (req: Request, res: Response) => {
   }
   const playerId = req.user?.playerId;
   if (!playerId) {
-    res.status(401).json({ error: "Sign in to update the wishlist" });
+    sendApiError(res, 401, "Sign in to update the wishlist");
     return;
   }
 
@@ -255,24 +256,23 @@ router.patch("/:id", async (req: Request, res: Response) => {
     select: { id: true, status: true, minPlayers: true, maxPlayers: true },
   });
   if (!existing) {
-    res.status(404).json({ error: "Wishlist item not found" });
+    sendApiError(res, 404, "Wishlist item not found");
     return;
   }
   if (existing.status === "ACQUIRED" && result.data.status) {
-    res.status(409).json({ error: "Acquired games can’t change wishlist status" });
+    sendApiError(res, 409, "Acquired games can’t change wishlist status");
     return;
   }
   const minPlayers = result.data.minPlayers === undefined ? existing.minPlayers : result.data.minPlayers;
   const maxPlayers = result.data.maxPlayers === undefined ? existing.maxPlayers : result.data.maxPlayers;
   if (minPlayers !== null && maxPlayers !== null && minPlayers > maxPlayers) {
-    res.status(400).json({
-      error: "Invalid wishlist request",
+    sendApiError(res, 422, "Invalid wishlist request", "UNPROCESSABLE_ENTITY", {
       details: { maxPlayers: ["Must be at least the minimum player count"] },
     });
     return;
   }
   if (!(await tagIdsExist(result.data.tagIds))) {
-    res.status(400).json({ error: "One or more selected tags no longer exist" });
+    sendApiError(res, 422, "One or more selected tags no longer exist");
     return;
   }
 
@@ -301,7 +301,7 @@ router.delete("/:id", async (req: Request, res: Response) => {
     return;
   }
   if (!req.user?.playerId) {
-    res.status(401).json({ error: "Sign in to remove a wishlist item" });
+    sendApiError(res, 401, "Sign in to remove a wishlist item");
     return;
   }
 
@@ -313,11 +313,13 @@ router.delete("/:id", async (req: Request, res: Response) => {
       where: { id: id.data },
       select: { id: true },
     });
-    res.status(item ? 409 : 404).json({
-      error: item
+    sendApiError(
+      res,
+      item ? 409 : 404,
+      item
         ? "Only archived wishlist items that have not been acquired can be permanently removed"
         : "Wishlist item not found",
-    });
+    );
     return;
   }
   res.status(204).end();
@@ -331,7 +333,7 @@ router.put("/:id/interests/me", async (req: Request, res: Response) => {
   }
   const playerId = req.user?.playerId;
   if (!playerId) {
-    res.status(401).json({ error: "Sign in to register your interest" });
+    sendApiError(res, 401, "Sign in to register your interest");
     return;
   }
   const item = await prisma.wishlistItem.findUnique({
@@ -339,11 +341,11 @@ router.put("/:id/interests/me", async (req: Request, res: Response) => {
     select: { id: true, status: true },
   });
   if (!item) {
-    res.status(404).json({ error: "Wishlist item not found" });
+    sendApiError(res, 404, "Wishlist item not found");
     return;
   }
   if (item.status === "ACQUIRED" || item.status === "ARCHIVED") {
-    res.status(409).json({ error: "Interest can only be recorded for an active wishlist item" });
+    sendApiError(res, 409, "Interest can only be recorded for an active wishlist item");
     return;
   }
   await prisma.wishlistInterest.upsert({
@@ -362,7 +364,7 @@ router.delete("/:id/interests/me", async (req: Request, res: Response) => {
   }
   const playerId = req.user?.playerId;
   if (!playerId) {
-    res.status(401).json({ error: "Sign in to remove your interest" });
+    sendApiError(res, 401, "Sign in to remove your interest");
     return;
   }
   await prisma.wishlistInterest.deleteMany({

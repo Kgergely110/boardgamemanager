@@ -1,11 +1,11 @@
+import { Button, Eyebrow, FeedbackMessage } from "../components/ui";
+import { LibraryNavigation, LibraryRail, LibraryTopbar } from "../components/LibraryChrome";
 import { FormEvent, useEffect, useState } from "react";
-import { Crown } from "lucide-react";
-import { Link, useSearchParams } from "react-router-dom";
-import { DevelopmentUserMenu } from "../components/DevelopmentUserMenu";
-import { LibraryIcon, LibraryMark } from "../components/LibraryIcon";
-import { ThemePicker } from "../components/ThemePicker";
+import { useSearchParams } from "react-router-dom";
+import { LibraryIcon } from "../components/LibraryIcon";
 import { PlayLogCard } from "../components/PlayLogCard";
 import { OngoingGamesList } from "../components/OngoingGamesList";
+import { PlayLogChart, PlayLogLeaderboard } from "../components/PlayLogInsights";
 import { api, getErrorMessage } from "../lib/api";
 import { Game, PlayLog, PlayLogStatistics, Player as AppPlayer, Tag } from "../types";
 
@@ -115,104 +115,7 @@ function durationLabel(minutes: number | null): string {
   return remainingMinutes ? `${hours}h ${remainingMinutes}m` : `${hours}h`;
 }
 
-function PlayLogChart({
-  title,
-  emptyText,
-  items,
-}: {
-  title: string;
-  emptyText: string;
-  items: { label: string; value: number; detail?: string }[];
-}) {
-  const maximum = Math.max(1, ...items.map((item) => item.value));
-  return (
-    <section className="play-log-chart">
-      <h3>{title}</h3>
-      {items.length === 0 ? (
-        <p className="play-log-chart__empty">{emptyText}</p>
-      ) : (
-        <div className="play-log-chart__bars">
-          {items.map((item) => (
-            <div className="play-log-chart__row" aria-label={`${item.label}: ${item.value}`} key={item.label} role="group">
-              <div className="play-log-chart__label">
-                <span>{item.label}{item.detail && <small>{item.detail}</small>}</span>
-                <b>{item.value}</b>
-              </div>
-              <div className="play-log-chart__track">
-                <span style={{ width: `${item.value === 0 ? 0 : Math.max(3, (item.value / maximum) * 100)}%` }} />
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
-  );
-}
-
 type InsightDimension = "games" | "tags" | "players" | "timeline";
-
-function PlayLogLeaderboard({
-  items,
-  emptyText,
-}: {
-  items: { label: string; value: number }[];
-  emptyText: string;
-}) {
-  const maximum = Math.max(1, ...items.map((item) => item.value));
-  const leadersCount = items.filter((item) => item.value === maximum).length;
-  let previousWins = -1;
-  let rank = 0;
-
-  return (
-    <section className="play-log-leaderboard" aria-labelledby="play-log-leaderboard-title">
-      <header className="play-log-leaderboard__heading">
-        <div>
-          <span className="eyebrow">THE HOUSEHOLD STANDINGS</span>
-          <h3 id="play-log-leaderboard-title">Table champions</h3>
-        </div>
-        {items.length > 0 && <span>{items.length} ranked</span>}
-      </header>
-      {items.length === 0 ? (
-        <p className="play-log-chart__empty">{emptyText}</p>
-      ) : (
-        <ol className="play-log-leaderboard__list">
-          {items.map((item, index) => {
-            if (item.value !== previousWins) rank = index + 1;
-            previousWins = item.value;
-            const isWinner = item.value === maximum;
-            const placement = isWinner
-              ? leadersCount > 1 ? "tied for first place" : "first place"
-              : `rank ${rank}`;
-            return (
-              <li
-                aria-label={`${item.label}, ${placement}, ${item.value} ${item.value === 1 ? "win" : "wins"}`}
-                className={`play-log-leaderboard__row${isWinner ? " play-log-leaderboard__row--winner" : ""}`}
-                key={`${item.label}-${index}`}
-              >
-                <span className="play-log-leaderboard__rank" aria-hidden="true">
-                  {isWinner ? <Crown /> : String(rank).padStart(2, "0")}
-                </span>
-                <div className="play-log-leaderboard__player">
-                  <div className="play-log-leaderboard__player-name">
-                    <strong>{item.label}</strong>
-                    {isWinner && <span>{leadersCount > 1 ? "Co-champion" : "Table champion"}</span>}
-                  </div>
-                  <div className="play-log-leaderboard__track" aria-hidden="true">
-                    <span style={{ width: `${Math.max(4, (item.value / maximum) * 100)}%` }} />
-                  </div>
-                </div>
-                <div className="play-log-leaderboard__wins">
-                  <strong>{item.value}</strong>
-                  <span>{item.value === 1 ? "win" : "wins"}</span>
-                </div>
-              </li>
-            );
-          })}
-        </ol>
-      )}
-    </section>
-  );
-}
 
 export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: () => void }) {
   const [searchParams] = useSearchParams();
@@ -221,6 +124,7 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
   const [tags, setTags] = useState<Tag[]>([]);
   const [players, setPlayers] = useState<{ id: string; fullName: string }[]>([]);
   const [resourcesLoading, setResourcesLoading] = useState(true);
+  const [resourcesRevision, setResourcesRevision] = useState(0);
   const [resourceError, setResourceError] = useState("");
   const [filters, setFilters] = useState<LogFilters>(() => emptyFilters(initialGameId));
   const [filterDraft, setFilterDraft] = useState<LogFilters>(() => emptyFilters(initialGameId));
@@ -229,6 +133,7 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
   const [insightDimension, setInsightDimension] = useState<InsightDimension>("games");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [pageError, setPageError] = useState("");
   const [notice, setNotice] = useState("");
   const [revision, setRevision] = useState(0);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -240,16 +145,20 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
 
   useEffect(() => {
     let active = true;
-    Promise.all([
+    setResourceError("");
+    Promise.allSettled([
       api.get<{ data: Game[] }>("/games"),
       api.get<{ data: Tag[] }>("/tags"),
       api.get<{ data: { id: string; fullName: string }[] }>("/players"),
     ])
-      .then(([gameResponse, tagResponse, playerResponse]) => {
+      .then(([gameResult, tagResult, playerResult]) => {
         if (!active) return;
-        setGames(gameResponse.data.data);
-        setTags(tagResponse.data.data);
-        setPlayers(playerResponse.data.data);
+        if (gameResult.status === "fulfilled") setGames(gameResult.value.data.data);
+        else setResourceError(getErrorMessage(gameResult.reason));
+        if (tagResult.status === "fulfilled") setTags(tagResult.value.data.data);
+        else setResourceError(getErrorMessage(tagResult.reason));
+        if (playerResult.status === "fulfilled") setPlayers(playerResult.value.data.data);
+        else setResourceError(getErrorMessage(playerResult.reason));
       })
       .catch((requestError: unknown) => {
         if (active) setResourceError(getErrorMessage(requestError));
@@ -258,7 +167,7 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
         if (active) setResourcesLoading(false);
       });
     return () => { active = false; };
-  }, []);
+  }, [resourcesRevision]);
 
   useEffect(() => {
     let active = true;
@@ -267,13 +176,13 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
       if (value) params.set(key, value);
     });
     setLoading(true);
-    setError("");
+    setPageError("");
     api.get<PlayLogPageResponse>(`/play-logs?${params.toString()}`)
       .then(({ data }) => {
         if (active) setPageData(data);
       })
       .catch((requestError: unknown) => {
-        if (active) setError(getErrorMessage(requestError));
+        if (active) setPageError(getErrorMessage(requestError));
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -404,10 +313,12 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
   const statistics = pageData?.statistics;
   const monthlyActivity = (() => {
     const activity = statistics?.monthlyActivity ?? [];
-    if (activity.length === 0) return [];
+    const lastActivity = activity.at(-1);
+    if (!lastActivity) return [];
     const byPeriod = new Map(activity.map((item) => [item.period, item]));
-    const lastDate = new Date(`${activity[activity.length - 1].period}-01T00:00:00.000Z`);
-    const firstDate = new Date(`${activity[Math.max(0, activity.length - 12)].period}-01T00:00:00.000Z`);
+    const firstActivity = activity[Math.max(0, activity.length - 12)] ?? lastActivity;
+    const lastDate = new Date(`${lastActivity.period}-01T00:00:00.000Z`);
+    const firstDate = new Date(`${firstActivity.period}-01T00:00:00.000Z`);
     const months: { period: string; plays: number; wins: number }[] = [];
     for (const cursor = new Date(firstDate); cursor <= lastDate; cursor.setUTCMonth(cursor.getUTCMonth() + 1)) {
       const period = cursor.toISOString().slice(0, 7);
@@ -440,78 +351,55 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
 
   return (
     <div className="library-shell play-log-shell">
-      <aside className="library-rail">
-        <Link className="brand-mark" to="/" aria-label="Board Game Library home">
-          <LibraryMark className="brand-mark__symbol" />
-          <span className="brand-mark__name">The Game<br />Library</span>
-        </Link>
-        <div className="rail-divider" />
-        <span className="rail-label">YOUR COLLECTION</span>
-        <nav className="play-log-nav" aria-label="Library navigation">
-          <Link className="shelf-nav__item" to="/">
-            <span className="shelf-nav__glyph"><LibraryIcon name="collection" /></span><span>All games</span>
-          </Link>
-        </nav>
-        <div className="rail-utility">
-          <span className="rail-label">GAME NIGHT</span>
-          <Link className="shelf-nav__item" to="/lets-play">
-            <span className="shelf-nav__glyph"><LibraryIcon name="play" /></span><span>Let’s play</span>
-          </Link>
-          <Link className="shelf-nav__item is-selected" to="/logs" aria-current="page">
-            <span className="shelf-nav__glyph"><LibraryIcon name="chronicle" /></span><span>Game logs</span>
-          </Link>
-          <Link className="shelf-nav__item" to="/wishlist">
-            <span className="shelf-nav__glyph"><LibraryIcon name="wishlist" /></span><span>Wishlist</span>
-          </Link>
-        </div>
-        <div className="rail-utility">
-          <span className="rail-label">REFERENCE</span>
-          <Link className="shelf-nav__item" to="/wiki">
-            <span className="shelf-nav__glyph"><LibraryIcon name="wiki" /></span><span>Game wiki</span>
-          </Link>
-          <Link className="shelf-nav__item" to="/ambience">
-            <span className="shelf-nav__glyph"><LibraryIcon name="ambience" /></span><span>Ambience</span>
-          </Link>
-        </div>
-        {import.meta.env.DEV && player.isAdmin && <DevelopmentUserMenu player={player} />}
-        <div className="rail-bottom">
-          <span className="rail-bottom__avatar">{player.fullName.slice(0, 1).toUpperCase()}</span>
-          <span className="rail-bottom__identity"><strong>{player.fullName}</strong><small>Keeper of the collection</small></span>
-          <button className="logout-button" onClick={onLogout} title="Sign out" aria-label="Sign out">↗</button>
-        </div>
-      </aside>
+      <LibraryRail player={player} onLogout={onLogout}>
+        <LibraryNavigation activePage="logs" collectionNavClassName="play-log-nav" />
+        
+      </LibraryRail>
 
       <main className="library-main play-log-main">
-        <header className="library-topbar">
-          <div className="breadcrumbs"><span>THE ARCHIVE</span><b>/</b><strong>GAME LOGS</strong></div>
-          <ThemePicker />
-        </header>
+        <LibraryTopbar section="THE ARCHIVE" page="GAME LOGS" />
         <section className="play-log-heading">
           <div>
-            <span className="eyebrow">EVERY TABLE HAS A STORY</span>
+            <Eyebrow>EVERY TABLE HAS A STORY</Eyebrow>
             <h1>The Game Log</h1>
             <p>Record sessions, follow the standings, and see how your table plays.</p>
           </div>
-          <button className="button button--primary" disabled={resourcesLoading} onClick={openNewLog} type="button">
+          <Button className="button button--primary" disabled={resourcesLoading} onClick={openNewLog} type="button">
             ＋ Record a game
-          </button>
+          </Button>
         </section>
 
         <OngoingGamesList />
 
-        {(resourceError || error) && (
-          <div className="notice notice--error" role="alert">
-            {resourceError || error}
-            <button onClick={() => { setResourceError(""); setError(""); setRevision((value) => value + 1); }} type="button">
-              Dismiss
-            </button>
-          </div>
+        {resourceError && (
+          <FeedbackMessage
+            className="notice notice--error"
+            message={resourceError}
+            onDismiss={() => setResourceError("")}
+            onRetry={() => {
+              setResourcesLoading(true);
+              setResourcesRevision((value) => value + 1);
+            }}
+          />
         )}
-        {notice && <div className="notice" role="status">{notice}<button onClick={() => setNotice("")} type="button">Dismiss</button></div>}
+        {pageError && (
+          <FeedbackMessage
+            className="notice notice--error"
+            message={pageError}
+            onDismiss={() => setPageError("")}
+            onRetry={() => setRevision((value) => value + 1)}
+          />
+        )}
+        {error && (
+          <FeedbackMessage className="notice notice--error" message={error} onDismiss={() => setError("")} />
+        )}
+        {notice && (
+          <FeedbackMessage className="notice" message={notice} onDismiss={() => setNotice("")} tone="success" />
+        )}
 
         <section className="play-log-statistics" aria-label="Filtered play statistics">
           <div className="play-log-statistics__heading">
-            <div><span className="eyebrow">THE TABLE, IN NUMBERS</span><h2>Session statistics</h2></div>
+            <div><Eyebrow>THE TABLE, IN NUMBERS</Eyebrow><h2>Session statistics</h2></div>
             <span>{loading ? "Updating…" : `${statistics?.totalSessions ?? 0} matching sessions`}</span>
           </div>
           <div className="play-log-statistics__numbers">
@@ -523,7 +411,7 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
           <div className="play-log-insights">
             <div className="play-log-insights__controls" role="group" aria-label="Explore insights by">
               {(Object.keys(insightNames) as InsightDimension[]).map((dimension) => (
-                <button
+                <Button
                   aria-pressed={insightDimension === dimension}
                   className={insightDimension === dimension ? "is-selected" : ""}
                   key={dimension}
@@ -531,7 +419,7 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
                   type="button"
                 >
                   {insightNames[dimension].label}
-                </button>
+                </Button>
               ))}
             </div>
             <div className="play-log-statistics__charts" aria-live="polite">
@@ -539,7 +427,11 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
                 emptyText={insightDimension === "timeline"
                   ? "Activity over time will appear as you record sessions."
                   : "No matching plays in this breakdown yet."}
-                items={insightItems.map((item) => ({ label: item.label, value: item.plays, detail: item.detail }))}
+                items={insightItems.map((item) => ({
+                  label: item.label,
+                  value: item.plays,
+                  ...(item.detail === undefined ? {} : { detail: item.detail }),
+                }))}
                 title={insightNames[insightDimension].plays}
               />
               {insightDimension === "players" ? (
@@ -563,7 +455,7 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
 
         <section className="play-log-filters" aria-labelledby="play-log-filter-title">
           <div className="play-log-filters__heading">
-            <div><span className="eyebrow">FIND A SESSION</span><h2 id="play-log-filter-title">Filter the archive</h2></div>
+            <div><Eyebrow>FIND A SESSION</Eyebrow><h2 id="play-log-filter-title">Filter the archive</h2></div>
             <span>Statistics update with these filters</span>
           </div>
           <form onSubmit={applyFilters}>
@@ -611,26 +503,27 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
             </label>
             <div className="play-log-filters__actions">
               <span className="play-log-filter-note">Winner names match first-place finishers; tied wins are included.</span>
-              <button className="button button--quiet" onClick={clearFilters} type="button">Clear filters</button>
-              <button className="button button--primary" type="submit">Apply filters</button>
+              <Button className="button button--quiet" onClick={clearFilters} type="button">Clear filters</Button>
+              <Button className="button button--primary" type="submit">Apply filters</Button>
             </div>
           </form>
         </section>
 
         <section className="play-log-archive" aria-labelledby="play-log-archive-title">
           <div className="play-log-archive__heading">
-            <div><span className="eyebrow">THE CHRONICLE</span><h2 id="play-log-archive-title">Recorded sessions</h2></div>
+            <div><Eyebrow>THE CHRONICLE</Eyebrow><h2 id="play-log-archive-title">Recorded sessions</h2></div>
             <span>{pageData ? `${pageData.pagination.total.toLocaleString()} records` : "Loading records…"}</span>
           </div>
           {loading && !pageData ? (
             <div className="empty-state play-log-empty" role="status" aria-live="polite"><p>Opening the chronicle…</p></div>
           ) : pageData?.data.length ? (
             <div className={`play-log-list ${loading ? "is-loading" : ""}`} aria-busy={loading}>
-              {archiveGroups.map((group) => group.gameNight ? (
-                <section className="play-log-night-group" key={group.key} aria-label={`Games from game night ${new Date(group.gameNight.startedAt).toLocaleDateString()}`}>
+              {archiveGroups.map((group) => {
+                if (group.gameNight) return (
+                  <section className="play-log-night-group" key={group.key} aria-label={`Games from game night ${new Date(group.gameNight.startedAt).toLocaleDateString()}`}>
                   <header className="play-log-night-group__heading">
                     <div>
-                      <span className="eyebrow">ONE EVENING, MANY STORIES</span>
+                      <Eyebrow>ONE EVENING, MANY STORIES</Eyebrow>
                       <h3>Game night · {new Date(group.gameNight.startedAt).toLocaleDateString(undefined, { dateStyle: "long" })}</h3>
                     </div>
                     <span>
@@ -650,14 +543,18 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
                     ))}
                   </div>
                 </section>
-              ) : (
-                <PlayLogCard
-                  key={group.logs[0].id}
-                  log={group.logs[0]}
-                  onDelete={() => setPendingDelete(group.logs[0])}
-                  onEdit={() => openEditLog(group.logs[0])}
-                />
-              ))}
+                );
+                const log = group.logs[0];
+                if (!log) return null;
+                return (
+                  <PlayLogCard
+                    key={log.id}
+                    log={log}
+                    onDelete={() => setPendingDelete(log)}
+                    onEdit={() => openEditLog(log)}
+                  />
+                );
+              })}
             </div>
           ) : (
             <div className="empty-state play-log-empty">
@@ -667,13 +564,13 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
             </div>
           )}
           <nav className="play-log-pagination" aria-label="Game log pages">
-            <button className="button button--quiet" disabled={page <= 1 || loading} onClick={() => setPage((value) => Math.max(1, value - 1))} type="button">
+            <Button className="button button--quiet" disabled={page <= 1 || loading} onClick={() => setPage((value) => Math.max(1, value - 1))} type="button">
               ← Newer
-            </button>
+            </Button>
             <span>Page {page} of {totalPages} <i>·</i> 100 records per page</span>
-            <button className="button button--quiet" disabled={page >= totalPages || loading} onClick={() => setPage((value) => Math.min(totalPages, value + 1))} type="button">
+            <Button className="button button--quiet" disabled={page >= totalPages || loading} onClick={() => setPage((value) => Math.min(totalPages, value + 1))} type="button">
               Older →
-            </button>
+            </Button>
           </nav>
         </section>
 
@@ -684,8 +581,8 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
         <div className="play-log-modal-backdrop">
           <form className="play-log-editor" onSubmit={saveLog} role="dialog" aria-modal="true" aria-labelledby="play-log-editor-title">
             <header className="play-log-editor__heading">
-              <div><span className="eyebrow">A MOMENT AT THE TABLE</span><h2 id="play-log-editor-title">{editingLog ? "Edit game log" : "Record a game"}</h2></div>
-              <button aria-label="Close editor" className="play-log-editor__close" onClick={() => setEditorOpen(false)} type="button">×</button>
+              <div><Eyebrow>A MOMENT AT THE TABLE</Eyebrow><h2 id="play-log-editor-title">{editingLog ? "Edit game log" : "Record a game"}</h2></div>
+              <Button aria-label="Close editor" className="play-log-editor__close" onClick={() => setEditorOpen(false)} type="button">×</Button>
             </header>
             <div className="play-log-editor__fields">
               <label className="play-log-editor__wide">
@@ -740,10 +637,10 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
             </div>
             <div className="play-log-participants-editor">
               <div className="play-log-participants-editor__heading">
-                <div><span className="eyebrow">THE TABLE</span><h3>Players &amp; placements</h3></div>
-                <button className="button button--quiet" onClick={() => setDraft((value) => ({ ...value, participants: [...value.participants, emptyParticipant()] }))} type="button">
+                <div><Eyebrow>THE TABLE</Eyebrow><h3>Players &amp; placements</h3></div>
+                <Button className="button button--quiet" onClick={() => setDraft((value) => ({ ...value, participants: [...value.participants, emptyParticipant()] }))} type="button">
                   ＋ Add player
-                </button>
+                </Button>
               </div>
               <p className="play-log-editor__hint">
                 Ties are welcome: give tied players the same place. Leave placement blank for cooperative or unranked games; first place defines winner statistics.
@@ -787,7 +684,7 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
                     Score
                     <input type="number" value={participant.score} onChange={(event) => updateParticipant(participant.key, { score: event.target.value })} />
                   </label>
-                  <button
+                  <Button
                     aria-label={`Remove player ${index + 1}`}
                     className="play-log-participant-editor__remove"
                     disabled={draft.participants.length === 1}
@@ -798,7 +695,7 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
                     type="button"
                   >
                     Remove
-                  </button>
+                  </Button>
                 </fieldset>
               ))}
             </div>
@@ -806,10 +703,12 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
               Session notes
               <textarea maxLength={5000} rows={3} value={draft.notes} onChange={(event) => setDraft((value) => ({ ...value, notes: event.target.value }))} />
             </label>
-            {error && <p className="form-error" role="alert">{error}</p>}
+            {error && (
+              <FeedbackMessage className="form-error" message={error} onDismiss={() => setError("")} />
+            )}
             <div className="play-log-editor__footer">
-              <button className="button button--quiet" disabled={saving} onClick={() => setEditorOpen(false)} type="button">Cancel</button>
-              <button className="button button--primary" disabled={saving} type="submit">{saving ? "Saving…" : editingLog ? "Save changes" : "Record session"}</button>
+              <Button className="button button--quiet" disabled={saving} onClick={() => setEditorOpen(false)} type="button">Cancel</Button>
+              <Button className="button button--primary" disabled={saving} type="submit">{saving ? "Saving…" : editingLog ? "Save changes" : "Record session"}</Button>
             </div>
           </form>
         </div>
@@ -818,13 +717,15 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
       {pendingDelete && (
         <div className="play-log-modal-backdrop">
           <section className="play-log-delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="play-log-delete-title">
-            <span className="eyebrow">REMOVE FROM THE CHRONICLE</span>
+            <Eyebrow>REMOVE FROM THE CHRONICLE</Eyebrow>
             <h2 id="play-log-delete-title">Delete this session?</h2>
             <p>This will permanently remove the log and its participant results.</p>
-            {error && <p className="form-error" role="alert">{error}</p>}
+            {error && (
+              <FeedbackMessage className="form-error" message={error} onDismiss={() => setError("")} />
+            )}
             <div className="play-log-editor__footer">
-              <button className="button button--quiet" disabled={deleting} onClick={() => { setPendingDelete(null); setError(""); }} type="button">Keep session</button>
-              <button className="button button--danger" disabled={deleting} onClick={() => void deleteLog()} type="button">{deleting ? "Deleting…" : "Delete session"}</button>
+              <Button className="button button--quiet" disabled={deleting} onClick={() => { setPendingDelete(null); setError(""); }} type="button">Keep session</Button>
+              <Button className="button button--danger" disabled={deleting} onClick={() => void deleteLog()} type="button">{deleting ? "Deleting…" : "Delete session"}</Button>
             </div>
           </section>
         </div>

@@ -2,6 +2,7 @@ import { Prisma } from "@prisma/client";
 import { Router, Request, Response } from "express";
 import { z } from "zod";
 import prisma from "../lib/prisma.js";
+import { sendApiError, sendValidationError } from "../lib/http.js";
 
 const router = Router();
 export const idSchema = z.string().uuid();
@@ -103,10 +104,6 @@ function presentGameNightRecap(gameNight: GameNightRecapRecord) {
   };
 }
 
-function validationError(res: Response, error: z.ZodError): void {
-  res.status(400).json({ error: "Invalid game night request", details: error.flatten().fieldErrors });
-}
-
 router.get("/", async (_req: Request, res: Response) => {
   const gameNights = await prisma.gameNight.findMany({
     orderBy: [{ startedAt: "desc" }, { id: "desc" }],
@@ -119,7 +116,7 @@ router.get("/", async (_req: Request, res: Response) => {
 router.get("/:id", async (req: Request, res: Response) => {
   const id = idSchema.safeParse(req.params.id);
   if (!id.success) {
-    validationError(res, id.error);
+    sendValidationError(res, id.error, "Invalid game night request");
     return;
   }
 
@@ -128,7 +125,7 @@ router.get("/:id", async (req: Request, res: Response) => {
     include: gameNightRecapInclude,
   });
   if (!gameNight) {
-    res.status(404).json({ error: "Game night not found" });
+    sendApiError(res, 404, "Game night not found");
     return;
   }
   res.json({ data: presentGameNightRecap(gameNight) });
@@ -140,7 +137,7 @@ router.post("/", async (_req: Request, res: Response) => {
     select: { id: true },
   });
   if (activeNight) {
-    res.status(409).json({ error: "A game night is already in progress" });
+    sendApiError(res, 409, "A game night is already in progress");
     return;
   }
 
@@ -151,7 +148,7 @@ router.post("/", async (_req: Request, res: Response) => {
 router.post("/:id/close", async (req: Request, res: Response) => {
   const id = idSchema.safeParse(req.params.id);
   if (!id.success) {
-    validationError(res, id.error);
+    sendValidationError(res, id.error, "Invalid game night request");
     return;
   }
 
@@ -182,15 +179,15 @@ router.post("/:id/close", async (req: Request, res: Response) => {
   });
 
   if (result.kind === "not-found") {
-    res.status(404).json({ error: "Game night not found" });
+    sendApiError(res, 404, "Game night not found");
     return;
   }
   if (result.kind === "ongoing") {
-    res.status(409).json({ error: "Finish all games in this night before closing it" });
+    sendApiError(res, 409, "Finish all games in this night before closing it");
     return;
   }
   if (result.kind === "closed") {
-    res.status(409).json({ error: "This game night is already closed" });
+    sendApiError(res, 409, "This game night is already closed");
     return;
   }
   res.json({ data: presentGameNightRecap(result.gameNight) });

@@ -10,6 +10,12 @@ export interface AuthResponse {
   player: Player;
 }
 
+export interface ApiErrorResponse {
+  error?: unknown;
+  code?: string;
+  details?: unknown;
+}
+
 export interface Shelf {
   id: string;
   name: string;

@@ -1,3 +1,4 @@
+import { Button, Eyebrow, List, Panel } from "./ui";
 import { Crown } from "lucide-react";
 import { PlayLog } from "../types";
 
@@ -25,13 +26,13 @@ export function PlayLogCard({ log, showGame = true, onEdit, onDelete }: PlayLogC
   const standings = orderedParticipants.filter((participant) => participant.placement !== 1);
 
   return (
-    <article className="play-log-card">
+    <Panel as="article" className="play-log-card">
       <header className="play-log-card__header">
         <div>
-          <span className="eyebrow">{new Date(log.playedAt).toLocaleString(undefined, {
+          <Eyebrow>{new Date(log.playedAt).toLocaleString(undefined, {
             dateStyle: "medium",
             timeStyle: "short",
-          })}</span>
+          })}</Eyebrow>
           {showGame && (
             <h3>
               {gameName}
@@ -42,12 +43,12 @@ export function PlayLogCard({ log, showGame = true, onEdit, onDelete }: PlayLogC
         {(onEdit || onDelete) && (
           <div className="play-log-card__actions">
             {onEdit && (
-              <button className="button button--quiet" onClick={onEdit} type="button">Edit</button>
+              <Button className="button button--quiet" onClick={onEdit} type="button">Edit</Button>
             )}
             {onDelete && (
-              <button className="button button--quiet play-log-card__delete" onClick={onDelete} type="button">
+              <Button className="button button--quiet play-log-card__delete" onClick={onDelete} type="button">
                 Delete
-              </button>
+              </Button>
             )}
           </div>
         )}
@@ -60,7 +61,7 @@ export function PlayLogCard({ log, showGame = true, onEdit, onDelete }: PlayLogC
       <section className="play-log-results" aria-labelledby={`results-${log.id}`}>
         <div className="play-log-results__heading">
           <div>
-            <span className="eyebrow">THE FINAL TABLE</span>
+            <Eyebrow>THE FINAL TABLE</Eyebrow>
             <h4 id={`results-${log.id}`}>Game results</h4>
           </div>
           <span>{log.participants.length} {log.participants.length === 1 ? "player" : "players"}</span>
@@ -72,8 +73,8 @@ export function PlayLogCard({ log, showGame = true, onEdit, onDelete }: PlayLogC
               <span>1</span>
             </div>
             <div className="play-log-champions__content">
-              <span className="eyebrow">{champions.length > 1 ? "SHARED VICTORY" : "AT THE CROWN"}</span>
-              <ul>
+              <Eyebrow>{champions.length > 1 ? "SHARED VICTORY" : "AT THE CROWN"}</Eyebrow>
+              <List>
                 {champions.map((participant) => (
                   <li key={participant.id}>
                     <strong>{participant.displayName}</strong>
@@ -84,7 +85,7 @@ export function PlayLogCard({ log, showGame = true, onEdit, onDelete }: PlayLogC
                     </span>
                   </li>
                 ))}
-              </ul>
+              </List>
             </div>
           </div>
         )}
@@ -93,7 +94,7 @@ export function PlayLogCard({ log, showGame = true, onEdit, onDelete }: PlayLogC
             <div className="play-log-standings__labels" aria-hidden="true">
               <span>Place</span><span>Player</span><span>Score</span>
             </div>
-            <ol className="play-log-results__list">
+            <List as="ol" className="play-log-results__list">
               {standings.map((participant) => (
                 <li
                   aria-label={`${participant.displayName}, ${participant.placement ? `${ordinal(participant.placement)} place` : "unranked"}${participant.score !== null ? `, ${participant.score} points` : ", no score"}`}
@@ -114,11 +115,11 @@ export function PlayLogCard({ log, showGame = true, onEdit, onDelete }: PlayLogC
                   </span>
                 </li>
               ))}
-            </ol>
+            </List>
           </div>
         )}
       </section>
       {log.notes && <p className="play-log-card__notes">{log.notes}</p>}
-    </article>
+    </Panel>
   );
 }

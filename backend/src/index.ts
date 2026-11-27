@@ -13,6 +13,9 @@ import authRoutes from "./routes/auth.js";
 import developmentRoutes from "./routes/development.js";
 import shelfRoutes from "./routes/shelves.js";
 import gameRoutes from "./routes/games.js";
+import gameDocumentRoutes from "./routes/gameDocuments.js";
+import gameTagRoutes from "./routes/gameTags.js";
+import gameImageRoutes from "./routes/gameImages.js";
 import gameFeedbackRoutes from "./routes/gameFeedback.js";
 import tagRoutes from "./routes/tags.js";
 import playerRoutes from "./routes/players.js";
@@ -67,6 +70,9 @@ if (process.env.NODE_ENV !== "production") {
 }
 app.use("/api/shelves", authenticateToken, shelfRoutes);
 app.use("/api/games", authenticateToken, gameRoutes);
+app.use("/api/games", authenticateToken, gameDocumentRoutes);
+app.use("/api/games", authenticateToken, gameTagRoutes);
+app.use("/api/games", authenticateToken, gameImageRoutes);
 app.use("/api/games", authenticateToken, gameFeedbackRoutes);
 app.use("/api/tags", authenticateToken, tagRoutes);
 app.use("/api/players", authenticateToken, playerRoutes);

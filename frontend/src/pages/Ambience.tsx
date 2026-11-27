@@ -1,9 +1,7 @@
+import { Button, Eyebrow, FeedbackMessage } from "../components/ui";
+import { LibraryNavigation, LibraryRail, LibraryTopbar } from "../components/LibraryChrome";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { ExternalLink, Image as ImageIcon, Music2 } from "lucide-react";
-import { Link } from "react-router-dom";
-import { DevelopmentUserMenu } from "../components/DevelopmentUserMenu";
-import { LibraryIcon, LibraryMark } from "../components/LibraryIcon";
-import { ThemePicker } from "../components/ThemePicker";
 import { api, getErrorMessage } from "../lib/api";
 import { revealAndFocus } from "../lib/navigation";
 import { getSpotifyEmbed } from "../lib/spotifyEmbed";
@@ -49,6 +47,9 @@ export function Ambience({ player, onLogout }: { player: Player; onLogout: () =>
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [gamesError, setGamesError] = useState("");
+  const [tagsError, setTagsError] = useState("");
   const [formError, setFormError] = useState("");
   const [notice, setNotice] = useState("");
   const [revision, setRevision] = useState(0);
@@ -63,20 +64,25 @@ export function Ambience({ player, onLogout }: { player: Player; onLogout: () =>
     let active = true;
     async function load() {
       setLoading(true);
-      setError("");
+      setLoadError("");
+      setGamesError("");
+      setTagsError("");
       try {
-        const [ambienceResponse, gamesResponse, tagsResponse] = await Promise.all([
+        const [setsResult, gamesResult, tagsResult] = await Promise.allSettled([
           api.get<{ data: AmbienceSet[] }>("/ambience"),
           api.get<{ data: Game[] }>("/games"),
           api.get<{ data: Tag[] }>("/tags"),
         ]);
         if (active) {
-          setSets(ambienceResponse.data.data);
-          setGames(gamesResponse.data.data);
-          setTags(tagsResponse.data.data);
+          if (setsResult.status === "fulfilled") setSets(setsResult.value.data.data);
+          else setLoadError(getErrorMessage(setsResult.reason));
+          if (gamesResult.status === "fulfilled") setGames(gamesResult.value.data.data);
+          else setGamesError(getErrorMessage(gamesResult.reason));
+          if (tagsResult.status === "fulfilled") setTags(tagsResult.value.data.data);
+          else setTagsError(getErrorMessage(tagsResult.reason));
         }
       } catch (requestError) {
-        if (active) setError(getErrorMessage(requestError));
+        if (active) setLoadError(getErrorMessage(requestError));
       } finally {
         if (active) setLoading(false);
       }
@@ -170,85 +176,66 @@ export function Ambience({ player, onLogout }: { player: Player; onLogout: () =>
 
   return (
     <div className="library-shell ambience-shell">
-      <aside className="library-rail">
-        <Link className="brand-mark" to="/" aria-label="Board Game Library home">
-          <LibraryMark className="brand-mark__symbol" />
-          <span className="brand-mark__name">The Game<br />Library</span>
-        </Link>
-        <div className="rail-divider" />
-        <span className="rail-label">YOUR COLLECTION</span>
-        <nav className="shelf-nav" aria-label="Library navigation">
-          <Link className="shelf-nav__item" to="/">
-            <span className="shelf-nav__glyph"><LibraryIcon name="collection" /></span>
-            <span>All games</span>
-          </Link>
-        </nav>
-        <div className="rail-utility">
-          <span className="rail-label">GAME NIGHT</span>
-          <Link className="shelf-nav__item" to="/lets-play">
-            <span className="shelf-nav__glyph"><LibraryIcon name="play" /></span>
-            <span>Let’s play</span>
-          </Link>
-          <Link className="shelf-nav__item" to="/logs">
-            <span className="shelf-nav__glyph"><LibraryIcon name="chronicle" /></span>
-            <span>Game logs</span>
-          </Link>
-          <Link className="shelf-nav__item" to="/wishlist">
-            <span className="shelf-nav__glyph"><LibraryIcon name="wishlist" /></span>
-            <span>Wishlist</span>
-          </Link>
-        </div>
-        <div className="rail-utility">
-          <span className="rail-label">REFERENCE</span>
-          <Link className="shelf-nav__item" to="/wiki">
-            <span className="shelf-nav__glyph"><LibraryIcon name="wiki" /></span>
-            <span>Game wiki</span>
-          </Link>
-          <Link className="shelf-nav__item is-selected" to="/ambience" aria-current="page">
-            <span className="shelf-nav__glyph"><LibraryIcon name="ambience" /></span>
-            <span>Ambience</span>
-          </Link>
-        </div>
-        {import.meta.env.DEV && player.isAdmin && <DevelopmentUserMenu player={player} />}
-        <div className="rail-bottom">
-          <span className="rail-bottom__avatar">{player.fullName.slice(0, 1).toUpperCase()}</span>
-          <span className="rail-bottom__identity"><strong>{player.fullName}</strong><small>Keeper of the collection</small></span>
-          <button className="logout-button" onClick={onLogout} title="Sign out" aria-label="Sign out">↗</button>
-        </div>
-      </aside>
+      <LibraryRail player={player} onLogout={onLogout}>
+        <LibraryNavigation activePage="ambience" />
+        
+      </LibraryRail>
 
       <main className="library-main ambience-main">
-        <header className="library-topbar">
-          <div className="breadcrumbs"><span>REFERENCE</span><b>/</b><strong>AMBIENCE</strong></div>
-          <ThemePicker />
-        </header>
+        <LibraryTopbar section="REFERENCE" page="AMBIENCE" />
 
         <section className="ambience-heading">
           <div>
-            <span className="eyebrow">MUSIC, MOTION & MOOD</span>
+            <Eyebrow>MUSIC, MOTION & MOOD</Eyebrow>
             <h1>Set the atmosphere.</h1>
             <p>Collect links that bring each game night to life.</p>
           </div>
-          <button className="button button--primary" onClick={() => {
+          <Button className="button button--primary" onClick={() => {
             setNotice("");
             setFormError("");
             setDraft(emptyDraft());
             setEditorRevealToken((token) => token + 1);
-          }} type="button">＋ New atmosphere</button>
+          }} type="button">＋ New atmosphere</Button>
         </section>
 
-        {error && <div className="notice notice--error" role="alert">{error}</div>}
-        {notice && <div className="notice" role="status">{notice}</div>}
+        {error && (
+          <FeedbackMessage className="notice notice--error" message={error} onDismiss={() => setError("")} />
+        )}
+        {loadError && (
+          <FeedbackMessage
+            className="notice notice--error"
+            message={loadError}
+            onDismiss={() => setLoadError("")}
+            onRetry={() => setRevision((value) => value + 1)}
+          />
+        )}
+        {gamesError && (
+          <FeedbackMessage
+            message={`Game choices: ${gamesError}`}
+            onDismiss={() => setGamesError("")}
+            onRetry={() => setRevision((value) => value + 1)}
+          />
+        )}
+        {tagsError && (
+          <FeedbackMessage
+            message={`Tag choices: ${tagsError}`}
+            onDismiss={() => setTagsError("")}
+            onRetry={() => setRevision((value) => value + 1)}
+          />
+        )}
+        {notice && (
+          <FeedbackMessage className="notice" message={notice} onDismiss={() => setNotice("")} tone="success" />
+        )}
 
         {draft && (
           <form className="ambience-editor" onSubmit={(event) => void saveSet(event)} ref={editorRef}>
             <header className="ambience-editor__heading">
               <div>
-                <span className="eyebrow">{draft.id ? "REFINE AN ATMOSPHERE" : "CREATE AN ATMOSPHERE"}</span>
+                <Eyebrow>{draft.id ? "REFINE AN ATMOSPHERE" : "CREATE AN ATMOSPHERE"}</Eyebrow>
                 <h2>{draft.id ? "Edit this setup" : "A new scene"}</h2>
                 <p>Link it to games, tags, or both to make it reusable.</p>
               </div>
-              <button className="ambience-editor__close" onClick={() => setDraft(null)} type="button" aria-label="Close editor">×</button>
+              <Button className="ambience-editor__close" onClick={() => setDraft(null)} type="button" aria-label="Close editor">×</Button>
             </header>
             <div className="ambience-editor__fields">
               <label className="ambience-field">
@@ -303,11 +290,11 @@ export function Ambience({ player, onLogout }: { player: Player; onLogout: () =>
 
             <section className="ambience-links-editor" aria-labelledby="ambience-links-title">
               <header className="ambience-links-editor__heading">
-                <div><span className="eyebrow">THE SOUND & THE SIGHT</span><h3 id="ambience-links-title">Links in this setup</h3></div>
-                <button className="button button--quiet" disabled={draft.links.length >= 20} onClick={() => setDraft({
+                <div><Eyebrow>THE SOUND & THE SIGHT</Eyebrow><h3 id="ambience-links-title">Links in this setup</h3></div>
+                <Button className="button button--quiet" disabled={draft.links.length >= 20} onClick={() => setDraft({
                   ...draft,
                   links: [...draft.links, { title: "", kind: "music", uri: "", embed: false }],
-                })} type="button">＋ Add link</button>
+                })} type="button">＋ Add link</Button>
               </header>
               {draft.links.map((link, index) => (
                 <div className="ambience-link-editor" key={index}>
@@ -356,28 +343,34 @@ export function Ambience({ player, onLogout }: { player: Player; onLogout: () =>
                     />
                     {link.embed && <small className="ambience-link-editor__hint">Embeds supported Spotify tracks, albums, playlists, shows, episodes, and artists.</small>}
                   </label>
-                  <button
+                  <Button
                     aria-label={`Remove ${link.title || "untitled link"}`}
                     className="ambience-link-editor__remove"
                     disabled={draft.links.length === 1}
                     onClick={() => setDraft({ ...draft, links: draft.links.filter((_, linkIndex) => linkIndex !== index) })}
                     type="button"
-                  >Remove</button>
+                  >Remove</Button>
                 </div>
               ))}
             </section>
             <p className="ambience-editor__help">Links open in their service; Spotify player links can also be embedded on the ongoing game page.</p>
-            {formError && <p className="ambience-editor__error" role="alert">{formError}</p>}
+            {formError && (
+              <FeedbackMessage
+                className="ambience-editor__error"
+                message={formError}
+                onDismiss={() => setFormError("")}
+              />
+            )}
             <footer className="ambience-editor__footer">
-              <button className="button button--quiet" disabled={saving} onClick={() => setDraft(null)} type="button">Cancel</button>
-              <button className="button button--primary" disabled={saving} type="submit">{saving ? "Saving…" : "Save atmosphere"}</button>
+              <Button className="button button--quiet" disabled={saving} onClick={() => setDraft(null)} type="button">Cancel</Button>
+              <Button className="button button--primary" disabled={saving} type="submit">{saving ? "Saving…" : "Save atmosphere"}</Button>
             </footer>
           </form>
         )}
 
         <section className="ambience-library" aria-labelledby="ambience-library-title">
           <header className="ambience-library__heading">
-            <div><span className="eyebrow">YOUR COLLECTION</span><h2 id="ambience-library-title">Atmosphere setups</h2></div>
+            <div><Eyebrow>YOUR COLLECTION</Eyebrow><h2 id="ambience-library-title">Atmosphere setups</h2></div>
             <span>{sets.length} {sets.length === 1 ? "setup" : "setups"}</span>
           </header>
           {loading && sets.length === 0 ? (
@@ -389,12 +382,12 @@ export function Ambience({ player, onLogout }: { player: Player; onLogout: () =>
               {sets.map((set) => (
                 <article className="ambience-card" key={set.id}>
                   <header className="ambience-card__heading">
-                    <div><span className="eyebrow">{set.links.length} {set.links.length === 1 ? "LINK" : "LINKS"}</span><h3>{set.name}</h3></div>
+                    <div><Eyebrow>{set.links.length} {set.links.length === 1 ? "LINK" : "LINKS"}</Eyebrow><h3>{set.name}</h3></div>
                     <div className="ambience-card__actions">
-                      <button className="button button--quiet" onClick={() => editSet(set)} type="button">Edit</button>
-                      <button className="ambience-card__delete" disabled={deletingId === set.id} onClick={() => void deleteSet(set)} type="button">
+                      <Button className="button button--quiet" onClick={() => editSet(set)} type="button">Edit</Button>
+                      <Button className="ambience-card__delete" disabled={deletingId === set.id} onClick={() => void deleteSet(set)} type="button">
                         {deletingId === set.id ? "Removing…" : "Delete"}
-                      </button>
+                      </Button>
                     </div>
                   </header>
                   {set.description && <p className="ambience-card__description">{set.description}</p>}

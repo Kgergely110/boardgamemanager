@@ -3,6 +3,7 @@ import { Router, Request, Response } from "express";
 import { z } from "zod";
 import { getElapsedSeconds } from "../lib/ongoingGameTime.js";
 import prisma from "../lib/prisma.js";
+import { sendApiError, sendValidationError } from "../lib/http.js";
 
 const router = Router();
 export const idSchema = z.string().uuid();
@@ -73,24 +74,21 @@ router.get("/", async (_req: Request, res: Response) => {
 router.post("/", async (req: Request, res: Response) => {
   const parsed = startSchema.safeParse(req.body);
   if (!parsed.success) {
-    res.status(400).json({
-      error: "Invalid ongoing game",
-      details: parsed.error.flatten().fieldErrors,
-    });
+    sendValidationError(res, parsed.error, "Invalid ongoing game");
     return;
   }
 
   const { gameId, guestGameName, location, gameNightId, participants } = parsed.data;
   const playerIds = participants.flatMap((participant) => participant.playerId ? [participant.playerId] : []);
   if (new Set(playerIds).size !== playerIds.length) {
-    res.status(400).json({ error: "An app player can only be added once" });
+    sendApiError(res, 422, "An app player can only be added once");
     return;
   }
   const guestNames = participants.flatMap((participant) => participant.name
     ? [participant.name.trim().replace(/\s+/g, " ").toLocaleLowerCase()]
     : []);
   if (new Set(guestNames).size !== guestNames.length) {
-    res.status(400).json({ error: "A guest player can only be added once" });
+    sendApiError(res, 422, "A guest player can only be added once");
     return;
   }
 
@@ -101,18 +99,18 @@ router.post("/", async (req: Request, res: Response) => {
       select: { id: true, minPlayers: true, maxPlayers: true },
     });
     if (!game) {
-      res.status(404).json({ error: "Game not found" });
+      sendApiError(res, 404, "Game not found");
       return;
     }
   }
 
   const minimumPlayers = game?.minPlayers ?? 1;
   if (participants.length < minimumPlayers) {
-    res.status(400).json({ error: `This game requires at least ${minimumPlayers} players` });
+    sendApiError(res, 422, `This game requires at least ${minimumPlayers} players`);
     return;
   }
   if (game?.maxPlayers !== null && game?.maxPlayers !== undefined && participants.length > game.maxPlayers) {
-    res.status(400).json({ error: `This game allows at most ${game.maxPlayers} players` });
+    sendApiError(res, 422, `This game allows at most ${game.maxPlayers} players`);
     return;
   }
 
@@ -123,7 +121,7 @@ router.post("/", async (req: Request, res: Response) => {
       })
     : [];
   if (appPlayers.length !== playerIds.length) {
-    res.status(400).json({ error: "One or more selected app users could not be found" });
+    sendApiError(res, 422, "One or more selected app users could not be found");
     return;
   }
   const appPlayersById = new Map(appPlayers.map((appPlayer) => [appPlayer.id, appPlayer]));
@@ -134,7 +132,7 @@ router.post("/", async (req: Request, res: Response) => {
       : participant.name ?? "",
   }));
   if (participantData.some((participant) => !participant.displayName)) {
-    res.status(400).json({ error: "One or more players could not be resolved" });
+    sendApiError(res, 422, "One or more players could not be resolved");
     return;
   }
 
@@ -170,7 +168,7 @@ router.post("/", async (req: Request, res: Response) => {
     });
   });
   if (!data) {
-    res.status(409).json({ error: "That game night is no longer active. Refresh the page and try again." });
+    sendApiError(res, 409, "That game night is no longer active. Refresh the page and try again.");
     return;
   }
   res.status(201).json({ data: includeElapsedSeconds(data) });
@@ -179,7 +177,7 @@ router.post("/", async (req: Request, res: Response) => {
 router.get("/:id", async (req: Request, res: Response) => {
   const id = idSchema.safeParse(req.params.id);
   if (!id.success) {
-    res.status(400).json({ error: "Invalid ongoing game id" });
+    sendValidationError(res, id.error, "Invalid ongoing game id");
     return;
   }
   const data = await prisma.ongoingGame.findUnique({
@@ -187,7 +185,7 @@ router.get("/:id", async (req: Request, res: Response) => {
     include: ongoingGameInclude,
   });
   if (!data) {
-    res.status(404).json({ error: "Ongoing game not found" });
+    sendApiError(res, 404, "Ongoing game not found");
     return;
   }
   res.json({ data: includeElapsedSeconds(data) });
@@ -196,7 +194,7 @@ router.get("/:id", async (req: Request, res: Response) => {
 router.post("/:id/pause", async (req: Request, res: Response) => {
   const id = idSchema.safeParse(req.params.id);
   if (!id.success) {
-    res.status(400).json({ error: "Invalid ongoing game id" });
+    sendValidationError(res, id.error, "Invalid ongoing game id");
     return;
   }
   const current = await prisma.ongoingGame.findUnique({
@@ -204,11 +202,11 @@ router.post("/:id/pause", async (req: Request, res: Response) => {
     select: { id: true, pausedAt: true },
   });
   if (!current) {
-    res.status(404).json({ error: "Ongoing game not found" });
+    sendApiError(res, 404, "Ongoing game not found");
     return;
   }
   if (current.pausedAt) {
-    res.status(409).json({ error: "This game is already paused" });
+    sendApiError(res, 409, "This game is already paused");
     return;
   }
   const updated = await prisma.ongoingGame.updateMany({
@@ -216,7 +214,7 @@ router.post("/:id/pause", async (req: Request, res: Response) => {
     data: { pausedAt: new Date() },
   });
   if (updated.count !== 1) {
-    res.status(409).json({ error: "The game state changed; refresh and try again" });
+    sendApiError(res, 409, "The game state changed; refresh and try again");
     return;
   }
   const data = await prisma.ongoingGame.findUnique({
@@ -224,7 +222,7 @@ router.post("/:id/pause", async (req: Request, res: Response) => {
     include: ongoingGameInclude,
   });
   if (!data) {
-    res.status(404).json({ error: "Ongoing game not found" });
+    sendApiError(res, 404, "Ongoing game not found");
     return;
   }
   res.json({ data: includeElapsedSeconds(data) });
@@ -233,7 +231,7 @@ router.post("/:id/pause", async (req: Request, res: Response) => {
 router.post("/:id/resume", async (req: Request, res: Response) => {
   const id = idSchema.safeParse(req.params.id);
   if (!id.success) {
-    res.status(400).json({ error: "Invalid ongoing game id" });
+    sendValidationError(res, id.error, "Invalid ongoing game id");
     return;
   }
   const current = await prisma.ongoingGame.findUnique({
@@ -241,11 +239,11 @@ router.post("/:id/resume", async (req: Request, res: Response) => {
     select: { id: true, pausedAt: true },
   });
   if (!current) {
-    res.status(404).json({ error: "Ongoing game not found" });
+    sendApiError(res, 404, "Ongoing game not found");
     return;
   }
   if (!current.pausedAt) {
-    res.status(409).json({ error: "This game is not paused" });
+    sendApiError(res, 409, "This game is not paused");
     return;
   }
   const now = new Date();
@@ -255,7 +253,7 @@ router.post("/:id/resume", async (req: Request, res: Response) => {
     data: { pausedAt: null, pausedDurationSeconds: { increment: pauseSeconds } },
   });
   if (updated.count !== 1) {
-    res.status(409).json({ error: "The game state changed; refresh and try again" });
+    sendApiError(res, 409, "The game state changed; refresh and try again");
     return;
   }
   const data = await prisma.ongoingGame.findUnique({
@@ -263,7 +261,7 @@ router.post("/:id/resume", async (req: Request, res: Response) => {
     include: ongoingGameInclude,
   });
   if (!data) {
-    res.status(404).json({ error: "Ongoing game not found" });
+    sendApiError(res, 404, "Ongoing game not found");
     return;
   }
   res.json({ data: includeElapsedSeconds(data) });
@@ -272,15 +270,12 @@ router.post("/:id/resume", async (req: Request, res: Response) => {
 router.post("/:id/finish", async (req: Request, res: Response) => {
   const id = idSchema.safeParse(req.params.id);
   if (!id.success) {
-    res.status(400).json({ error: "Invalid ongoing game id" });
+    sendValidationError(res, id.error, "Invalid ongoing game id");
     return;
   }
   const parsedFinish = finishSchema.safeParse(req.body ?? {});
   if (!parsedFinish.success) {
-    res.status(400).json({
-      error: "Invalid game results",
-      details: parsedFinish.error.flatten().fieldErrors,
-    });
+    sendValidationError(res, parsedFinish.error, "Invalid game results");
     return;
   }
 
@@ -333,11 +328,11 @@ router.post("/:id/finish", async (req: Request, res: Response) => {
     return { kind: "created" as const, data: playLog };
   });
   if (result.kind === "not-found") {
-    res.status(404).json({ error: "Ongoing game not found or already finished" });
+    sendApiError(res, 404, "Ongoing game not found or already finished");
     return;
   }
   if (result.kind === "invalid-results") {
-    res.status(400).json({ error: "Provide exactly one valid result for each player at this table" });
+    sendApiError(res, 422, "Provide exactly one valid result for each player at this table");
     return;
   }
   res.status(201).json({ data: result.data });

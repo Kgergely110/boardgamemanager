@@ -39,6 +39,6 @@ export function sendValidationError(
   message = "Invalid request",
 ): void {
   sendApiError(res, 400, message, "VALIDATION_ERROR", {
-    details: error.flatten().fieldErrors,
+    details: z.flattenError(error).fieldErrors,
   });
 }

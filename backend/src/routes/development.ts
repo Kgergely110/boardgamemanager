@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import prisma from "../lib/prisma.js";
 import { authenticateToken } from "../middlewares/auth.js";
+import { sendApiError, sendValidationError } from "../lib/http.js";
 
 const router = Router();
 
@@ -18,7 +19,7 @@ router.use(authenticateToken);
 router.post("/users", async (req: Request, res: Response) => {
   const playerId = req.user?.playerId;
   if (!playerId) {
-    res.status(401).json({ error: "Authentication required" });
+    sendApiError(res, 401, "Authentication required");
     return;
   }
 
@@ -27,16 +28,13 @@ router.post("/users", async (req: Request, res: Response) => {
     select: { isAdmin: true },
   });
   if (!actor?.isAdmin) {
-    res.status(403).json({ error: "Administrator access required" });
+    sendApiError(res, 403, "Administrator access required");
     return;
   }
 
   const result = userSchema.safeParse(req.body);
   if (!result.success) {
-    res.status(400).json({
-      error: "Invalid request",
-      details: result.error.flatten().fieldErrors,
-    });
+    sendValidationError(res, result.error);
     return;
   }
 
@@ -62,7 +60,7 @@ router.post("/users", async (req: Request, res: Response) => {
       error instanceof Prisma.PrismaClientKnownRequestError &&
       error.code === "P2002"
     ) {
-      res.status(409).json({ error: "That username is already in use" });
+      sendApiError(res, 409, "That username is already in use");
       return;
     }
     throw error;

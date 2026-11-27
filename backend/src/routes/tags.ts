@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { z } from "zod";
 import prisma from "../lib/prisma.js";
+import { sendApiError, sendValidationError } from "../lib/http.js";
 
 const router = Router();
 export const createTagSchema = z.object({
@@ -19,10 +20,7 @@ router.get("/", async (_req: Request, res: Response) => {
 router.post("/", async (req: Request, res: Response) => {
   const result = createTagSchema.safeParse(req.body);
   if (!result.success) {
-    res.status(400).json({
-      error: "Invalid tag",
-      details: result.error.flatten().fieldErrors,
-    });
+    sendValidationError(res, result.error, "Invalid tag");
     return;
   }
 
@@ -46,7 +44,7 @@ router.post("/", async (req: Request, res: Response) => {
       });
       return;
     }
-    res.status(409).json({ error: "A tag with this name already exists" });
+    sendApiError(res, 409, "A tag with this name already exists");
     return;
   }
 

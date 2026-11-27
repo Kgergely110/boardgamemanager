@@ -1,9 +1,9 @@
+import { Button, Eyebrow, FeedbackMessage } from "../components/ui";
+import { LibraryNavigation, LibraryRail, LibraryTopbar } from "../components/LibraryChrome";
 import { Bookmark, Flame, Heart, Sparkles } from "lucide-react";
 import { FormEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { DevelopmentUserMenu } from "../components/DevelopmentUserMenu";
-import { LibraryIcon, LibraryMark } from "../components/LibraryIcon";
-import { ThemePicker } from "../components/ThemePicker";
+import { LibraryIcon } from "../components/LibraryIcon";
 import { api, getErrorMessage } from "../lib/api";
 import { Game, Player, Shelf, Tag, WishlistItem, WishlistPriority, WishlistStatus } from "../types";
 
@@ -160,6 +160,9 @@ export function Wishlist({ player, onLogout }: { player: Player; onLogout: () =>
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [tagsError, setTagsError] = useState("");
+  const [shelvesError, setShelvesError] = useState("");
   const [formError, setFormError] = useState("");
   const [notice, setNotice] = useState("");
   const [revision, setRevision] = useState(0);
@@ -202,7 +205,9 @@ export function Wishlist({ player, onLogout }: { player: Player; onLogout: () =>
         setLoading(true);
         setPriceSummary(null);
       }
-      setError("");
+      setLoadError("");
+      setTagsError("");
+      setShelvesError("");
       const params = new URLSearchParams({ page: page.toString(), pageSize: "24", sort: filters.sort });
       if (filters.q.trim()) params.set("q", filters.q.trim());
       if (filters.status) params.set("status", filters.status);
@@ -213,7 +218,7 @@ export function Wishlist({ player, onLogout }: { player: Player; onLogout: () =>
       if (filters.maxPrice) params.set("maxPriceCents", String(Math.round(Number(filters.maxPrice) * 100)));
       if (filters.priority) params.set("priority", filters.priority);
       try {
-        const [wishlistResponse, tagsResponse, shelvesResponse] = await Promise.all([
+        const [wishlistResult, tagsResult, shelvesResult] = await Promise.allSettled([
           api.get<{
             data: WishlistItem[];
             pagination: { total: number; totalPages: number };
@@ -223,15 +228,21 @@ export function Wishlist({ player, onLogout }: { player: Player; onLogout: () =>
           api.get<{ data: Shelf[] }>("/shelves"),
         ]);
         if (active) {
-          setItems(wishlistResponse.data.data);
-          setTotal(wishlistResponse.data.pagination.total);
-          setPageCount(wishlistResponse.data.pagination.totalPages);
-          setPriceSummary(wishlistResponse.data.summary);
-          setTags(tagsResponse.data.data);
-          setShelves(shelvesResponse.data.data);
+          if (wishlistResult.status === "fulfilled") {
+            setItems(wishlistResult.value.data.data);
+            setTotal(wishlistResult.value.data.pagination.total);
+            setPageCount(wishlistResult.value.data.pagination.totalPages);
+            setPriceSummary(wishlistResult.value.data.summary);
+          } else {
+            setLoadError(getErrorMessage(wishlistResult.reason));
+          }
+          if (tagsResult.status === "fulfilled") setTags(tagsResult.value.data.data);
+          else setTagsError(getErrorMessage(tagsResult.reason));
+          if (shelvesResult.status === "fulfilled") setShelves(shelvesResult.value.data.data);
+          else setShelvesError(getErrorMessage(shelvesResult.reason));
         }
       } catch (requestError) {
-        if (active) setError(getErrorMessage(requestError));
+        if (active) setLoadError(getErrorMessage(requestError));
       } finally {
         if (active) setLoading(false);
       }
@@ -432,65 +443,55 @@ export function Wishlist({ player, onLogout }: { player: Player; onLogout: () =>
 
   return (
     <div className="library-shell wishlist-shell">
-      <aside className="library-rail">
-        <Link className="brand-mark" to="/" aria-label="Board Game Library home">
-          <LibraryMark className="brand-mark__symbol" />
-          <span className="brand-mark__name">The Game<br />Library</span>
-        </Link>
-        <div className="rail-divider" />
-        <span className="rail-label">YOUR COLLECTION</span>
-        <nav className="shelf-nav" aria-label="Library navigation">
-          <Link className="shelf-nav__item" to="/">
-            <span className="shelf-nav__glyph"><LibraryIcon name="collection" /></span><span>All games</span>
-          </Link>
-        </nav>
-        <div className="rail-utility">
-          <span className="rail-label">GAME NIGHT</span>
-          <Link className="shelf-nav__item" to="/lets-play">
-            <span className="shelf-nav__glyph"><LibraryIcon name="play" /></span><span>Let’s play</span>
-          </Link>
-          <Link className="shelf-nav__item" to="/logs">
-            <span className="shelf-nav__glyph"><LibraryIcon name="chronicle" /></span><span>Game logs</span>
-          </Link>
-          <Link className="shelf-nav__item is-selected" to="/wishlist" aria-current="page">
-            <span className="shelf-nav__glyph"><LibraryIcon name="wishlist" /></span><span>Wishlist</span>
-          </Link>
-        </div>
-        <div className="rail-utility">
-          <span className="rail-label">REFERENCE</span>
-          <Link className="shelf-nav__item" to="/wiki">
-            <span className="shelf-nav__glyph"><LibraryIcon name="wiki" /></span><span>Game wiki</span>
-          </Link>
-          <Link className="shelf-nav__item" to="/ambience">
-            <span className="shelf-nav__glyph"><LibraryIcon name="ambience" /></span><span>Ambience</span>
-          </Link>
-        </div>
-        {import.meta.env.DEV && player.isAdmin && <DevelopmentUserMenu player={player} />}
-        <div className="rail-bottom">
-          <span className="rail-bottom__avatar">{player.fullName.slice(0, 1).toUpperCase()}</span>
-          <span className="rail-bottom__identity"><strong>{player.fullName}</strong><small>Keeper of the collection</small></span>
-          <button className="logout-button" onClick={onLogout} title="Sign out" aria-label="Sign out">↗</button>
-        </div>
-      </aside>
+      <LibraryRail player={player} onLogout={onLogout}>
+        <LibraryNavigation activePage="wishlist" />
+        
+      </LibraryRail>
 
       <main className="library-main wishlist-main">
-        <header className="library-topbar">
-          <div className="breadcrumbs"><span>GAME NIGHT</span><b>/</b><strong>WISHLIST</strong></div>
-          <ThemePicker />
-        </header>
+        <LibraryTopbar section="GAME NIGHT" page="WISHLIST" />
         <section className="wishlist-heading">
           <div>
-            <span className="eyebrow">THE SHARED WANT LIST</span>
+            <Eyebrow>THE SHARED WANT LIST</Eyebrow>
             <h1>Games to bring home</h1>
             <p>A place for the games you’re curious about, saving for, or already on their way.</p>
           </div>
-          <button className="button button--primary" onClick={openCreateForm}>
+          <Button className="button button--primary" onClick={openCreateForm}>
             <LibraryIcon name="wishlist" /> Add a game
-          </button>
+          </Button>
         </section>
 
-        {notice && <p className="wishlist-notice" role="status">{notice}</p>}
-        {error && <p className="wishlist-error" role="alert">{error}</p>}
+        {notice && (
+          <FeedbackMessage className="wishlist-notice" message={notice} onDismiss={() => setNotice("")} tone="success" />
+        )}
+        {error && (
+          <FeedbackMessage className="wishlist-error" message={error} onDismiss={() => setError("")} />
+        )}
+        {loadError && (
+          <FeedbackMessage
+            className="wishlist-error"
+            message={loadError}
+            onDismiss={() => setLoadError("")}
+            onRetry={() => {
+              setLoading(true);
+              setRevision((value) => value + 1);
+            }}
+          />
+        )}
+        {tagsError && (
+          <FeedbackMessage
+            message={`Tag filters: ${tagsError}`}
+            onDismiss={() => setTagsError("")}
+            onRetry={() => setRevision((value) => value + 1)}
+          />
+        )}
+        {shelvesError && (
+          <FeedbackMessage
+            message={`Container choices: ${shelvesError}`}
+            onDismiss={() => setShelvesError("")}
+            onRetry={() => setRevision((value) => value + 1)}
+          />
+        )}
 
         <section className="wishlist-filters" aria-label="Filter wishlist">
           <label className="wishlist-field wishlist-search">
@@ -628,7 +629,7 @@ export function Wishlist({ player, onLogout }: { player: Player; onLogout: () =>
                   </div>
                   <div className="wishlist-card__actions">
                     {item.status !== "ACQUIRED" && item.status !== "ARCHIVED" && (
-                      <button
+                      <Button
                         aria-busy={interestSavingIds.has(item.id)}
                         aria-pressed={item.isInterested}
                         className={`button wishlist-interest-button${item.isInterested ? " wishlist-interest-button--selected" : ""}`}
@@ -638,17 +639,17 @@ export function Wishlist({ player, onLogout }: { player: Player; onLogout: () =>
                       >
                         <Heart aria-hidden="true" fill={item.isInterested ? "currentColor" : "none"} />
                         {item.isInterested ? "Interested" : "I’m interested"}
-                      </button>
+                      </Button>
                     )}
                     {item.status !== "ACQUIRED" && item.status !== "ARCHIVED" && (
-                      <button className="button button--quiet" onClick={() => beginAcquisition(item)}>Add to collection</button>
+                      <Button className="button button--quiet" onClick={() => beginAcquisition(item)}>Add to collection</Button>
                     )}
-                    <button className="wishlist-text-button" onClick={() => openEditForm(item)}>Edit</button>
+                    <Button className="wishlist-text-button" onClick={() => openEditForm(item)}>Edit</Button>
                     {item.status !== "ACQUIRED" && item.status !== "ARCHIVED" && (
-                      <button className="wishlist-text-button wishlist-text-button--archive" onClick={() => void archiveItem(item)}>Archive</button>
+                      <Button className="wishlist-text-button wishlist-text-button--archive" onClick={() => void archiveItem(item)}>Archive</Button>
                     )}
                     {item.status === "ARCHIVED" && (
-                      <button className="wishlist-text-button wishlist-text-button--archive" onClick={() => setDeletingItem(item)}>Delete permanently</button>
+                      <Button className="wishlist-text-button wishlist-text-button--archive" onClick={() => setDeletingItem(item)}>Delete permanently</Button>
                     )}
                     {item.sourceUrl && <a className="wishlist-text-button" href={item.sourceUrl} target="_blank" rel="noreferrer">Visit source</a>}
                   </div>
@@ -658,18 +659,18 @@ export function Wishlist({ player, onLogout }: { player: Player; onLogout: () =>
           </section>
         ) : (
           <div className="wishlist-empty">
-            <span className="eyebrow">A QUIET SHELF</span>
+            <Eyebrow>A QUIET SHELF</Eyebrow>
             <h2>{filters.status === "ACTIVE" ? "No games match this list yet." : "Nothing here just yet."}</h2>
             <p>Try changing a filter, or add a game the household might enjoy.</p>
-            <button className="button button--primary" onClick={openCreateForm}>Add a game</button>
+            <Button className="button button--primary" onClick={openCreateForm}>Add a game</Button>
           </div>
         )}
 
         {pageCount > 1 && (
           <nav className="wishlist-pagination" aria-label="Wishlist pages">
-            <button className="button button--quiet" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Previous</button>
+            <Button className="button button--quiet" disabled={page <= 1} onClick={() => setPage((value) => value - 1)}>Previous</Button>
             <span>Page {page} of {pageCount}</span>
-            <button className="button button--quiet" disabled={page >= pageCount} onClick={() => setPage((value) => value + 1)}>Next</button>
+            <Button className="button button--quiet" disabled={page >= pageCount} onClick={() => setPage((value) => value + 1)}>Next</Button>
           </nav>
         )}
       </main>
@@ -681,11 +682,11 @@ export function Wishlist({ player, onLogout }: { player: Player; onLogout: () =>
           <form className="wishlist-editor" role="dialog" aria-modal="true" onSubmit={(event) => void saveItem(event)} aria-labelledby="wishlist-editor-title">
             <div className="wishlist-editor__heading">
               <div>
-                <span className="eyebrow">{editingItem ? "UPDATE THE LIST" : "A NEW POSSIBILITY"}</span>
+                <Eyebrow>{editingItem ? "UPDATE THE LIST" : "A NEW POSSIBILITY"}</Eyebrow>
                 <h2 id="wishlist-editor-title">{editingItem ? "Edit wishlist game" : "Add a game to the wishlist"}</h2>
                 <p>An asterisk marks required fields; all other details are optional. Everyone can see this shared list.</p>
               </div>
-              <button className="wishlist-close" type="button" aria-label="Close form" disabled={saving} onClick={() => { setDraft(null); setEditingItem(null); }}>×</button>
+              <Button className="wishlist-close" type="button" aria-label="Close form" disabled={saving} onClick={() => { setDraft(null); setEditingItem(null); }}>×</Button>
             </div>
             <div className="wishlist-editor__fields">
               <label className="wishlist-field"><span className="field-label">Game title</span><input required maxLength={120} value={draft.title} onChange={(event) => updateDraft("title", event.target.value)} /></label>
@@ -723,10 +724,12 @@ export function Wishlist({ player, onLogout }: { player: Player; onLogout: () =>
                 )) : <p>No tags yet. Add them from the collection.</p>}
               </div>
             </fieldset>
-            {formError && <p className="wishlist-error" role="alert">{formError}</p>}
+            {formError && (
+              <FeedbackMessage className="wishlist-error" message={formError} onDismiss={() => setFormError("")} />
+            )}
             <div className="wishlist-editor__footer">
-              <button className="button button--quiet" type="button" disabled={saving} onClick={() => { setDraft(null); setEditingItem(null); }}>Cancel</button>
-              <button className="button button--primary" type="submit" disabled={saving}>{saving ? "Saving…" : editingItem ? "Save changes" : "Add to wishlist"}</button>
+              <Button className="button button--quiet" type="button" disabled={saving} onClick={() => { setDraft(null); setEditingItem(null); }}>Cancel</Button>
+              <Button className="button button--primary" type="submit" disabled={saving}>{saving ? "Saving…" : editingItem ? "Save changes" : "Add to wishlist"}</Button>
             </div>
           </form>
         </div>
@@ -737,13 +740,15 @@ export function Wishlist({ player, onLogout }: { player: Player; onLogout: () =>
           if (event.target === event.currentTarget && !deleteSaving) setDeletingItem(null);
         }}>
           <section className="wishlist-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="wishlist-delete-title">
-            <span className="eyebrow">PERMANENT REMOVAL</span>
+            <Eyebrow>PERMANENT REMOVAL</Eyebrow>
             <h2 id="wishlist-delete-title">Remove “{deletingItem.title}” for good?</h2>
             <p>This archived wishlist entry and its interest records will be deleted. Games already in the collection are protected from removal here.</p>
-            {error && <p className="wishlist-error" role="alert">{error}</p>}
+            {error && (
+              <FeedbackMessage className="wishlist-error" message={error} onDismiss={() => setError("")} />
+            )}
             <div className="wishlist-editor__footer">
-              <button className="button button--quiet" disabled={deleteSaving} onClick={() => setDeletingItem(null)}>Keep archived</button>
-              <button className="button button--danger" disabled={deleteSaving} onClick={() => void deleteItem()}>{deleteSaving ? "Removing…" : "Delete permanently"}</button>
+              <Button className="button button--quiet" disabled={deleteSaving} onClick={() => setDeletingItem(null)}>Keep archived</Button>
+              <Button className="button button--danger" disabled={deleteSaving} onClick={() => void deleteItem()}>{deleteSaving ? "Removing…" : "Delete permanently"}</Button>
             </div>
           </section>
         </div>
@@ -756,11 +761,11 @@ export function Wishlist({ player, onLogout }: { player: Player; onLogout: () =>
           <form className="wishlist-editor wishlist-acquire" role="dialog" aria-modal="true" onSubmit={(event) => void addToCollection(event)} aria-labelledby="wishlist-acquire-title">
             <div className="wishlist-editor__heading">
               <div>
-                <span className="eyebrow">A PLACE ON THE SHELF</span>
+                <Eyebrow>A PLACE ON THE SHELF</Eyebrow>
                 <h2 id="wishlist-acquire-title">Add “{acquiringItem.title}” to the collection</h2>
                 <p>This creates the game entry, transfers its tags, and marks the wishlist item as acquired.</p>
               </div>
-              <button className="wishlist-close" type="button" aria-label="Close form" disabled={acquireSaving} onClick={() => setAcquiringItem(null)}>×</button>
+              <Button className="wishlist-close" type="button" aria-label="Close form" disabled={acquireSaving} onClick={() => setAcquiringItem(null)}>×</Button>
             </div>
             <div className="wishlist-editor__fields">
               <label className="wishlist-field wishlist-field--wide"><span className="field-label">Maker</span><input required maxLength={120} value={acquireMaker} onChange={(event) => setAcquireMaker(event.target.value)} /></label>
@@ -777,10 +782,12 @@ export function Wishlist({ player, onLogout }: { player: Player; onLogout: () =>
               </label>
             </div>
             {!shelves.length && <p className="wishlist-error">Add a container before placing a game in the collection. <Link to="/">Go to the library</Link>.</p>}
-            {acquireError && <p className="wishlist-error" role="alert">{acquireError}</p>}
+            {acquireError && (
+              <FeedbackMessage className="wishlist-error" message={acquireError} onDismiss={() => setAcquireError("")} />
+            )}
             <div className="wishlist-editor__footer">
-              <button className="button button--quiet" type="button" disabled={acquireSaving} onClick={() => setAcquiringItem(null)}>Cancel</button>
-              <button className="button button--primary" type="submit" disabled={acquireSaving || !shelves.length}>{acquireSaving ? "Adding…" : "Add to collection"}</button>
+              <Button className="button button--quiet" type="button" disabled={acquireSaving} onClick={() => setAcquiringItem(null)}>Cancel</Button>
+              <Button className="button button--primary" type="submit" disabled={acquireSaving || !shelves.length}>{acquireSaving ? "Adding…" : "Add to collection"}</Button>
             </div>
           </form>
         </div>

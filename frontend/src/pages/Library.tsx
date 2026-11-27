@@ -1,10 +1,10 @@
+import { Button, Eyebrow, FeedbackMessage } from "../components/ui";
+import { LibraryNavigation, LibraryRail, LibraryTopbar } from "../components/LibraryChrome";
 import { FormEvent, useEffect, useRef, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import { Bookcase } from "../components/Bookcase";
 import { CollectionPulse } from "../components/CollectionPulse";
-import { DevelopmentUserMenu } from "../components/DevelopmentUserMenu";
-import { LibraryIcon, LibraryMark } from "../components/LibraryIcon";
-import { ThemePicker } from "../components/ThemePicker";
+import { LibraryIcon } from "../components/LibraryIcon";
 import { api, getErrorMessage, setAuthToken } from "../lib/api";
 import { matchesGameSearch } from "../lib/gameSearch";
 import { revealAndFocus } from "../lib/navigation";
@@ -73,6 +73,7 @@ export function Library({ player, onLogout }: LibraryProps) {
   const [fallingGameIds, setFallingGameIds] = useState<Set<string>>(() => new Set());
   const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState("");
+  const [catalogErrors, setCatalogErrors] = useState({ shelves: "", games: "", tags: "" });
   const [notice, setNotice] = useState("");
   const location = useLocation();
   const navigate = useNavigate();
@@ -113,12 +114,13 @@ export function Library({ player, onLogout }: LibraryProps) {
 
   useEffect(() => {
     let active = true;
+    setCatalogErrors((current) => ({ ...current, shelves: "" }));
     api.get<{ data: Shelf[] }>("/shelves")
       .then(({ data }) => {
         if (active) setShelves(data.data);
       })
       .catch((requestError: unknown) => {
-        if (active) setError(getErrorMessage(requestError));
+        if (active) setCatalogErrors((current) => ({ ...current, shelves: getErrorMessage(requestError) }));
       })
       .finally(() => {
         if (active) setLoadingShelves(false);
@@ -128,12 +130,13 @@ export function Library({ player, onLogout }: LibraryProps) {
 
   useEffect(() => {
     let active = true;
+    setCatalogErrors((current) => ({ ...current, tags: "" }));
     api.get<{ data: Tag[] }>("/tags")
       .then(({ data }) => {
         if (active) setTags(data.data);
       })
       .catch((requestError: unknown) => {
-        if (active) setError(getErrorMessage(requestError));
+        if (active) setCatalogErrors((current) => ({ ...current, tags: getErrorMessage(requestError) }));
       });
     return () => { active = false; };
   }, [catalogRevision]);
@@ -142,12 +145,13 @@ export function Library({ player, onLogout }: LibraryProps) {
     let active = true;
     const timer = window.setTimeout(() => {
       setLoadingGames(true);
+      setCatalogErrors((current) => ({ ...current, games: "" }));
       api.get<{ data: Game[] }>("/games")
         .then(({ data }) => {
           if (active) setGames(data.data);
         })
         .catch((requestError: unknown) => {
-          if (active) setError(getErrorMessage(requestError));
+          if (active) setCatalogErrors((current) => ({ ...current, games: getErrorMessage(requestError) }));
         })
         .finally(() => {
           if (active) setLoadingGames(false);
@@ -468,116 +472,79 @@ export function Library({ player, onLogout }: LibraryProps) {
 
   return (
     <div className="library-shell">
-      <aside className="library-rail">
-        <Link className="brand-mark" to="/" aria-label="Board Game Library home">
-          <LibraryMark className="brand-mark__symbol" />
-          <span className="brand-mark__name">The Game<br />Library</span>
-        </Link>
-
-        <div className="rail-divider" />
-        <span className="rail-label">YOUR COLLECTION</span>
-        <nav className="shelf-nav" aria-label="Browse containers">
-          <div className="shelf-nav__branch-wrap">
-            <div className="shelf-nav__branch">
-              <button
-                aria-pressed={selectedShelfId === "all"}
-                className={`shelf-nav__item ${selectedShelfId === "all" ? "is-selected" : ""}`}
-                onClick={() => {
-                  setSelectedShelfId("all");
-                  setContainerMenuOpen(false);
-                }}
-              >
-                <span className="shelf-nav__glyph"><LibraryIcon name="collection" /></span>
-                <span>All games</span>
-                <span className="shelf-nav__count">{shelves.reduce((n, shelf) => n + shelf._count.games, 0)}</span>
-              </button>
-              <button
-                aria-expanded={containersExpanded}
-                aria-label={`${containersExpanded ? "Hide" : "Show"} containers`}
-                className="shelf-nav__toggle"
-                onClick={() => setContainersExpanded((expanded) => !expanded)}
-                type="button"
-              >
-                <svg aria-hidden="true" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4" /></svg>
-              </button>
-            </div>
-            {containersExpanded && (
-              <div className="shelf-nav__children" id="container-submenu" role="group" aria-label="Containers">
-                {shelves.map((shelf) => (
-                  <button
-                    aria-pressed={selectedShelfId === shelf.id}
-                    className={`shelf-nav__item shelf-nav__item--child ${selectedShelfId === shelf.id ? "is-selected" : ""}`}
-                    key={shelf.id}
-                    onClick={() => {
-                      setSelectedShelfId(shelf.id);
-                      setContainerMenuOpen(false);
-                    }}
-                  >
-                    <span className="shelf-nav__glyph" style={{ color: shelf.color || undefined }}>
-                      <LibraryIcon name="shelf" />
-                    </span>
-                    <span className="shelf-nav__text">{shelf.name}</span>
-                    <span className="shelf-nav__count">{shelf._count.games}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          {!loadingShelves && shelves.length === 0 && (
-            <p className="rail-empty">Your first shelf is waiting to be named.</p>
-          )}
-          <button className="rail-add" onClick={openNewShelf}>
-            <span className="rail-add__icon" aria-hidden="true">＋</span>
-            Add a container
-          </button>
-        </nav>
-        <div className="rail-utility">
-          <span className="rail-label">GAME NIGHT</span>
-          <Link className="shelf-nav__item" to="/lets-play">
-            <span className="shelf-nav__glyph"><LibraryIcon name="play" /></span>
-            <span>Let’s play</span>
-          </Link>
-          <Link className="shelf-nav__item play-log-nav-link" to="/logs">
-            <span className="shelf-nav__glyph"><LibraryIcon name="chronicle" /></span>
-            <span>Game logs</span>
-          </Link>
-          <Link className="shelf-nav__item" to="/wishlist">
-            <span className="shelf-nav__glyph"><LibraryIcon name="wishlist" /></span>
-            <span>Wishlist</span>
-          </Link>
-        </div>
-        <div className="rail-utility">
-          <span className="rail-label">REFERENCE</span>
-          <Link className="shelf-nav__item" to="/wiki">
-            <span className="shelf-nav__glyph"><LibraryIcon name="wiki" /></span>
-            <span>Game wiki</span>
-          </Link>
-          <Link className="shelf-nav__item" to="/ambience">
-            <span className="shelf-nav__glyph"><LibraryIcon name="ambience" /></span>
-            <span>Ambience</span>
-          </Link>
-        </div>
-        {import.meta.env.DEV && player.isAdmin && <DevelopmentUserMenu player={player} />}
-
-        <div className="rail-bottom">
-          <span className="rail-bottom__avatar">{player.fullName.slice(0, 1).toUpperCase()}</span>
-          <span className="rail-bottom__identity">
-            <strong>{player.fullName}</strong>
-            <small>Keeper of the collection</small>
-          </span>
-          <button className="logout-button" onClick={logout} title="Sign out" aria-label="Sign out">↗</button>
-        </div>
-      </aside>
+      <LibraryRail player={player} onLogout={logout}>
+        <LibraryNavigation
+          activePage="library"
+          collectionNavigation={
+            <>
+              <span className="rail-label">YOUR COLLECTION</span>
+                      <nav className="shelf-nav" aria-label="Browse containers">
+                        <div className="shelf-nav__branch-wrap">
+                          <div className="shelf-nav__branch">
+                            <Button
+                              aria-pressed={selectedShelfId === "all"}
+                              className={`shelf-nav__item ${selectedShelfId === "all" ? "is-selected" : ""}`}
+                              onClick={() => {
+                                setSelectedShelfId("all");
+                                setContainerMenuOpen(false);
+                              }}
+                            >
+                              <span className="shelf-nav__glyph"><LibraryIcon name="collection" /></span>
+                              <span>All games</span>
+                              <span className="shelf-nav__count">{shelves.reduce((n, shelf) => n + shelf._count.games, 0)}</span>
+                            </Button>
+                            <Button
+                              aria-expanded={containersExpanded}
+                              aria-label={`${containersExpanded ? "Hide" : "Show"} containers`}
+                              className="shelf-nav__toggle"
+                              onClick={() => setContainersExpanded((expanded) => !expanded)}
+                              type="button"
+                            >
+                              <svg aria-hidden="true" viewBox="0 0 16 16"><path d="m4 6 4 4 4-4" /></svg>
+                            </Button>
+                          </div>
+                          {containersExpanded && (
+                            <div className="shelf-nav__children" id="container-submenu" role="group" aria-label="Containers">
+                              {shelves.map((shelf) => (
+                                <Button
+                                  aria-pressed={selectedShelfId === shelf.id}
+                                  className={`shelf-nav__item shelf-nav__item--child ${selectedShelfId === shelf.id ? "is-selected" : ""}`}
+                                  key={shelf.id}
+                                  onClick={() => {
+                                    setSelectedShelfId(shelf.id);
+                                    setContainerMenuOpen(false);
+                                  }}
+                                >
+                                  <span className="shelf-nav__glyph" style={{ color: shelf.color || undefined }}>
+                                    <LibraryIcon name="shelf" />
+                                  </span>
+                                  <span className="shelf-nav__text">{shelf.name}</span>
+                                  <span className="shelf-nav__count">{shelf._count.games}</span>
+                                </Button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                        {!loadingShelves && shelves.length === 0 && (
+                          <p className="rail-empty">Your first shelf is waiting to be named.</p>
+                        )}
+                        <Button className="rail-add" onClick={openNewShelf}>
+                          <span className="rail-add__icon" aria-hidden="true">＋</span>
+                          Add a container
+                        </Button>
+                      </nav>
+            </>
+          }
+        />
+        
+      </LibraryRail>
 
       <main className="library-main">
-        <header className="library-topbar">
-          <div className="breadcrumbs"><span>COLLECTION</span><b>/</b><strong>THE STACKS</strong></div>
-          <ThemePicker />
-        </header>
+        <LibraryTopbar section="COLLECTION" page="THE STACKS" />
 
         <section className="library-heading">
           <div>
-            <span className="eyebrow">A PLACE FOR EVERY ADVENTURE</span>
+            <Eyebrow>A PLACE FOR EVERY ADVENTURE</Eyebrow>
             <h1>{selectedShelf ? selectedShelf.name : "The Stacks"}</h1>
             <p>
               {selectedShelf
@@ -588,24 +555,24 @@ export function Library({ player, onLogout }: LibraryProps) {
           <div className="heading-actions">
             {selectedShelf && (
               <div className="container-manage">
-                <button
+                <Button
                   aria-expanded={containerMenuOpen}
                   className="button button--quiet"
                   onClick={() => setContainerMenuOpen((open) => !open)}
                 >
                   <span aria-hidden="true">⋯</span> Manage
-                </button>
+                </Button>
                 {containerMenuOpen && (
                   <div className="container-manage__menu">
-                    <button
+                    <Button
                       onClick={() => {
                         openEditShelf(selectedShelf);
                         setContainerMenuOpen(false);
                       }}
                     >
                       Edit container
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       className="container-manage__delete"
                       onClick={() => {
                         setContainerMenuOpen(false);
@@ -613,38 +580,52 @@ export function Library({ player, onLogout }: LibraryProps) {
                       }}
                     >
                       Delete container
-                    </button>
+                    </Button>
                   </div>
                 )}
               </div>
             )}
-            <button
+            <Button
               className={`button ${arrangingGames ? "button--primary" : "button--quiet"}`}
               disabled={loadingGames || arrangementSaving || games.length === 0}
               onClick={() => setArrangingGames((arranging) => !arranging)}
               type="button"
             >
               {arrangingGames ? "Finish arranging" : "Arrange games"}
-            </button>
-            <button className="button button--quiet" onClick={openNewShelf}>＋ Container</button>
-            <button
+            </Button>
+            <Button className="button button--quiet" onClick={openNewShelf}>＋ Container</Button>
+            <Button
               className="button button--primary"
               disabled={shelves.length === 0}
               onClick={openNewGame}
             >
               <span>＋</span> Add a game
-            </button>
+            </Button>
           </div>
         </section>
 
-        {error && <div className="notice notice--error" role="alert">{error}<button onClick={() => setError("")}>Dismiss</button></div>}
-        {notice && <div className="notice" role="status">{notice}<button onClick={() => setNotice("")}>Dismiss</button></div>}
+        {error && (
+          <FeedbackMessage className="notice notice--error" message={error} onDismiss={() => setError("")} />
+        )}
+        {Object.entries(catalogErrors).map(([resource, message]) => message && (
+          <FeedbackMessage
+            className="notice notice--error"
+            key={resource}
+            message={`${resource === "shelves" ? "Containers" : resource === "games" ? "Games" : "Tags"}: ${message}`}
+            onDismiss={() => setCatalogErrors((current) => ({ ...current, [resource]: "" }))}
+            onRetry={() => setCatalogRevision((value) => value + 1)}
+          />
+        ))}
+        {notice && (
+          <FeedbackMessage className="notice" message={notice} onDismiss={() => setNotice("")} tone="success" />
+        )}
 
         {selectedShelfId === "all" && (
           <CollectionPulse
             data={collectionPulse}
             error={collectionPulseError}
             loading={collectionPulseLoading}
+            onDismiss={() => setCollectionPulseError("")}
             onRetry={() => setCollectionPulseRevision((revision) => revision + 1)}
           />
         )}
@@ -652,7 +633,7 @@ export function Library({ player, onLogout }: LibraryProps) {
         {shelfFormOpen && (
           <form className="inline-form shelf-form" key={editingShelf?.id ?? "new-container"} onSubmit={saveShelf} ref={shelfFormRef}>
             <div className="form-heading">
-              <span className="eyebrow">{editingShelf ? "REFINE THE COLLECTION" : "MAKE ROOM"}</span>
+              <Eyebrow>{editingShelf ? "REFINE THE COLLECTION" : "MAKE ROOM"}</Eyebrow>
               <h2>{editingShelf ? "Edit container" : "Add a container"}</h2>
             </div>
             <label><span className="field-label">Name</span><input name="name" maxLength={80} defaultValue={editingShelf?.name} placeholder="e.g. The old walnut bookcase" required /></label>
@@ -669,14 +650,14 @@ export function Library({ player, onLogout }: LibraryProps) {
             <label>Height (cm)<input name="height" type="number" min="1" defaultValue={editingShelf?.height ?? ""} /></label>
             <label>Depth (cm)<input name="depth" type="number" min="1" defaultValue={editingShelf?.depth ?? ""} /></label>
             <label className="shelf-description">Description<input name="description" maxLength={500} defaultValue={editingShelf?.description ?? ""} /></label>
-            <div className="form-actions"><button className="button button--quiet" type="button" onClick={() => { setShelfFormOpen(false); setEditingShelf(null); }}>Cancel</button><button className="button button--primary">{editingShelf ? "Save container" : "Create container"}</button></div>
+            <div className="form-actions"><Button className="button button--quiet" type="button" onClick={() => { setShelfFormOpen(false); setEditingShelf(null); }}>Cancel</Button><Button className="button button--primary">{editingShelf ? "Save container" : "Create container"}</Button></div>
           </form>
         )}
 
         {gameFormOpen && (
           <form className="inline-form game-form" key={editingGame?.id ?? "new-game"} onSubmit={saveGame} ref={gameFormRef}>
             <div className="form-heading">
-              <span className="eyebrow">{editingGame ? "UPDATE ITS CATALOGUE ENTRY" : "GIVE IT A HOME"}</span>
+              <Eyebrow>{editingGame ? "UPDATE ITS CATALOGUE ENTRY" : "GIVE IT A HOME"}</Eyebrow>
               <h2>{editingGame ? "Edit board game" : "Add a board game"}</h2>
             </div>
             <div className="form-grid">
@@ -745,7 +726,7 @@ export function Library({ player, onLogout }: LibraryProps) {
               <label>Or upload a cover<input name="imageFile" type="file" accept="image/jpeg,image/png,image/webp" /></label>
             </div>
             <p className="upload-note">JPEG, PNG, or WebP · maximum 8 MB. Choose a URL or upload a file.</p>
-            <div className="form-actions"><button className="button button--quiet" type="button" onClick={() => { setGameFormOpen(false); setEditingGame(null); }}>Cancel</button><button className="button button--primary" disabled={restoringGame}>{editingGame ? "Save game" : "Place on the shelf"}</button></div>
+            <div className="form-actions"><Button className="button button--quiet" type="button" onClick={() => { setGameFormOpen(false); setEditingGame(null); }}>Cancel</Button><Button className="button button--primary" disabled={restoringGame}>{editingGame ? "Save game" : "Place on the shelf"}</Button></div>
           </form>
         )}
 
@@ -786,7 +767,7 @@ export function Library({ player, onLogout }: LibraryProps) {
         <section className="game-section" aria-live="polite">
           <div className="section-title">
             <div>
-              <span className="eyebrow">{selectedShelf ? "ON THIS SHELF" : "READY WHEN YOU ARE"}</span>
+              <Eyebrow>{selectedShelf ? "ON THIS SHELF" : "READY WHEN YOU ARE"}</Eyebrow>
               <h2>{query.trim() ? "The full collection" : "In the collection"}</h2>
               {query.trim() && <p className="section-title__subtitle">Matching games are highlighted; all games remain on their shelves.</p>}
             </div>
@@ -821,13 +802,13 @@ export function Library({ player, onLogout }: LibraryProps) {
               <LibraryIcon name="collection" className="empty-state__ornament" />
               <h3>{query ? "No matching titles" : "Your shelves are waiting"}</h3>
               <p>{query ? "Try another title or publisher." : "Create a container to give your games a home."}</p>
-              {!query && <button className="button button--quiet" onClick={openNewShelf}>＋ Create your first container</button>}
+              {!query && <Button className="button button--quiet" onClick={openNewShelf}>＋ Create your first container</Button>}
             </div>
           )}
           {!loadingGames && visibleGames.length === 0 && shelves.length > 0 && !query && (
             <div className="first-game-prompt">
               <p>The cases are ready. Add a game to see it placed at its level.</p>
-              <button className="button button--quiet" onClick={openNewGame}>＋ Add the first game</button>
+              <Button className="button button--quiet" onClick={openNewGame}>＋ Add the first game</Button>
             </div>
           )}
         </section>
@@ -844,7 +825,7 @@ export function Library({ player, onLogout }: LibraryProps) {
             role="alertdialog"
           >
             <span className="sweet-alert__seal"><LibraryIcon name="shelf" /></span>
-            <span className="eyebrow">A MOMENT BEFORE THE SPELL</span>
+            <Eyebrow>A MOMENT BEFORE THE SPELL</Eyebrow>
             <h2 id="delete-alert-title">
               {pendingDelete.kind === "game" ? "Let this game go?" : "Remove this container?"}
             </h2>
@@ -854,7 +835,7 @@ export function Library({ player, onLogout }: LibraryProps) {
                 : `“${pendingDelete.shelf.name}” can only be removed when it is empty.`}
             </p>
             <div className="sweet-alert__actions">
-              <button
+              <Button
                 autoFocus
                 className="button button--quiet"
                 disabled={isDeleting}
@@ -862,15 +843,15 @@ export function Library({ player, onLogout }: LibraryProps) {
                 type="button"
               >
                 Keep it
-              </button>
-              <button
+              </Button>
+              <Button
                 className="button sweet-alert__confirm"
                 disabled={isDeleting}
                 onClick={() => void confirmDelete()}
                 type="button"
               >
                 {isDeleting ? "Archiving…" : pendingDelete.kind === "game" ? "Archive game" : "Remove"}
-              </button>
+              </Button>
             </div>
           </section>
         </div>
@@ -885,7 +866,7 @@ export function Library({ player, onLogout }: LibraryProps) {
             role="alertdialog"
           >
             <span className="sweet-alert__seal"><LibraryIcon name="collection" /></span>
-            <span className="eyebrow">A STORY ALREADY IN THE ARCHIVE</span>
+            <Eyebrow>A STORY ALREADY IN THE ARCHIVE</Eyebrow>
             <h2 id="restore-alert-title">Bring it back?</h2>
             <p id="restore-alert-description">
               A game with this title is archived. Restore it to bring back its play history, documents, and tags, or create a separate copy.
@@ -898,14 +879,14 @@ export function Library({ player, onLogout }: LibraryProps) {
                     <span>{match.maker}{match.releaseYear ? ` · ${match.releaseYear}` : ""}</span>
                     <small>Archived {new Date(match.deletedAt).toLocaleDateString()}</small>
                   </div>
-                  <button
+                  <Button
                     className="button button--primary"
                     disabled={restoringGame}
                     onClick={() => void chooseDeletedGame(match.id)}
                     type="button"
                   >
                     {restoringGame ? "Restoring…" : "Restore this"}
-                  </button>
+                  </Button>
                 </article>
               ))}
             </div>
@@ -913,7 +894,7 @@ export function Library({ player, onLogout }: LibraryProps) {
               <p className="restore-alert__note">More archived copies exist; the list shows the 20 most recently archived.</p>
             )}
             <div className="sweet-alert__actions restore-alert__actions">
-              <button
+              <Button
                 autoFocus
                 className="button button--quiet"
                 disabled={restoringGame}
@@ -925,15 +906,15 @@ export function Library({ player, onLogout }: LibraryProps) {
                 type="button"
               >
                 Back to form
-              </button>
-              <button
+              </Button>
+              <Button
                 className="button sweet-alert__confirm"
                 disabled={restoringGame}
                 onClick={() => void chooseDeletedGame()}
                 type="button"
               >
                 Create a separate game
-              </button>
+              </Button>
             </div>
           </section>
         </div>

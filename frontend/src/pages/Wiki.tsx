@@ -1,9 +1,8 @@
+import { Button, Eyebrow, FeedbackMessage } from "../components/ui";
+import { LibraryNavigation, LibraryRail, LibraryTopbar } from "../components/LibraryChrome";
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Link } from "react-router-dom";
-import { DevelopmentUserMenu } from "../components/DevelopmentUserMenu";
-import { LibraryIcon, LibraryMark } from "../components/LibraryIcon";
-import { ThemePicker } from "../components/ThemePicker";
 import { api, getErrorMessage } from "../lib/api";
 import { Game, Player, Tag, WikiCategory, WikiEntry } from "../types";
 
@@ -45,6 +44,9 @@ export function Wiki({ player, onLogout }: WikiProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [revision, setRevision] = useState(0);
+  const [resourceRevision, setResourceRevision] = useState(0);
+  const [resourceError, setResourceError] = useState("");
+  const [wikiError, setWikiError] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [modalError, setModalError] = useState("");
@@ -57,7 +59,7 @@ export function Wiki({ player, onLogout }: WikiProps) {
     let active = true;
     const timer = window.setTimeout(() => {
       setLoading(true);
-      setError("");
+      setWikiError("");
       api.get<{ data: WikiResponse }>("/wiki", {
         params: query.trim() ? { search: query.trim() } : undefined,
       })
@@ -65,7 +67,7 @@ export function Wiki({ player, onLogout }: WikiProps) {
           if (active) setWiki(data.data);
         })
         .catch((requestError: unknown) => {
-          if (active) setError(getErrorMessage(requestError));
+          if (active) setWikiError(getErrorMessage(requestError));
         })
         .finally(() => {
           if (active) setLoading(false);
@@ -79,22 +81,25 @@ export function Wiki({ player, onLogout }: WikiProps) {
 
   useEffect(() => {
     let active = true;
-    Promise.all([
+    setResourceError("");
+    Promise.allSettled([
       api.get<{ data: Tag[] }>("/tags"),
       api.get<{ data: Game[] }>("/games"),
     ])
-      .then(([tagResponse, gameResponse]) => {
+      .then(([tagResult, gameResult]) => {
         if (!active) return;
-        setTags(tagResponse.data.data);
-        setGames(gameResponse.data.data);
+        if (tagResult.status === "fulfilled") setTags(tagResult.value.data.data);
+        else setResourceError(getErrorMessage(tagResult.reason));
+        if (gameResult.status === "fulfilled") setGames(gameResult.value.data.data);
+        else setResourceError(getErrorMessage(gameResult.reason));
       })
       .catch((requestError: unknown) => {
-        if (active) setError(getErrorMessage(requestError));
+        if (active) setResourceError(getErrorMessage(requestError));
       });
     return () => {
       active = false;
     };
-  }, []);
+  }, [resourceRevision]);
 
   const entriesByCategory = useMemo(() => {
     const groups = new Map<string, WikiEntry[]>();
@@ -257,80 +262,32 @@ export function Wiki({ player, onLogout }: WikiProps) {
 
   return (
     <div className="library-shell wiki-shell">
-      <aside className="library-rail">
-        <Link className="brand-mark" to="/" aria-label="Board Game Library home">
-          <LibraryMark className="brand-mark__symbol" />
-          <span className="brand-mark__name">The Game<br />Library</span>
-        </Link>
-        <div className="rail-divider" />
-        <span className="rail-label">YOUR COLLECTION</span>
-        <nav className="shelf-nav" aria-label="Library navigation">
-          <Link className="shelf-nav__item" to="/">
-            <span className="shelf-nav__glyph"><LibraryIcon name="collection" /></span>
-            <span>All games</span>
-          </Link>
-        </nav>
-        <div className="rail-utility">
-          <span className="rail-label">GAME NIGHT</span>
-          <Link className="shelf-nav__item" to="/lets-play">
-            <span className="shelf-nav__glyph"><LibraryIcon name="play" /></span>
-            <span>Let’s play</span>
-          </Link>
-          <Link className="shelf-nav__item" to="/logs">
-            <span className="shelf-nav__glyph"><LibraryIcon name="chronicle" /></span>
-            <span>Game logs</span>
-          </Link>
-          <Link className="shelf-nav__item" to="/wishlist">
-            <span className="shelf-nav__glyph"><LibraryIcon name="wishlist" /></span>
-            <span>Wishlist</span>
-          </Link>
-        </div>
-        <div className="rail-utility">
-          <span className="rail-label">REFERENCE</span>
-          <Link className="shelf-nav__item is-selected" to="/wiki" aria-current="page">
-            <span className="shelf-nav__glyph"><LibraryIcon name="wiki" /></span>
-            <span>Game wiki</span>
-          </Link>
-          <Link className="shelf-nav__item" to="/ambience">
-            <span className="shelf-nav__glyph"><LibraryIcon name="ambience" /></span>
-            <span>Ambience</span>
-          </Link>
-        </div>
-        {import.meta.env.DEV && player.isAdmin && <DevelopmentUserMenu player={player} />}
-        <div className="rail-bottom">
-          <span className="rail-bottom__avatar">{player.fullName.slice(0, 1).toUpperCase()}</span>
-          <span className="rail-bottom__identity">
-            <strong>{player.fullName}</strong>
-            <small>Keeper of the collection</small>
-          </span>
-          <button className="logout-button" onClick={onLogout} title="Sign out" aria-label="Sign out">↗</button>
-        </div>
-      </aside>
+      <LibraryRail player={player} onLogout={onLogout}>
+        <LibraryNavigation activePage="wiki" />
+        
+      </LibraryRail>
 
       <main className="library-main wiki-main">
-        <header className="library-topbar">
-          <div className="breadcrumbs"><span>REFERENCE</span><b>/</b><strong>THE FIELD GUIDE</strong></div>
-          <ThemePicker />
-        </header>
+        <LibraryTopbar section="REFERENCE" page="THE FIELD GUIDE" />
 
         <section className="wiki-heading">
           <div>
-            <span className="eyebrow">A COMMONPLACE BOOK FOR GAME NIGHT</span>
+            <Eyebrow>A COMMONPLACE BOOK FOR GAME NIGHT</Eyebrow>
             <h1>The Field Guide</h1>
             <p>Keep the ideas, strategies, and language of your table close at hand.</p>
           </div>
           <div className="heading-actions">
-            <button className="button button--quiet" onClick={() => openCategoryEditor()} type="button">
+            <Button className="button button--quiet" onClick={() => openCategoryEditor()} type="button">
               ＋ Category
-            </button>
-            <button
+            </Button>
+            <Button
               className="button button--primary"
               disabled={wiki.categories.length === 0}
               onClick={() => openEntryEditor()}
               type="button"
             >
               ＋ Entry
-            </button>
+            </Button>
           </div>
         </section>
 
@@ -354,15 +311,34 @@ export function Wiki({ player, onLogout }: WikiProps) {
           </label>
         </section>
 
-        {error && <div className="notice notice--error" role="alert">{error}<button onClick={() => setError("")}>Dismiss</button></div>}
-        {notice && <div className="notice" role="status">{notice}<button onClick={() => setNotice("")}>Dismiss</button></div>}
+        {error && (
+          <FeedbackMessage className="notice notice--error" message={error} onDismiss={() => setError("")} />
+        )}
+        {wikiError && (
+          <FeedbackMessage
+            className="notice notice--error"
+            message={wikiError}
+            onDismiss={() => setWikiError("")}
+            onRetry={() => setRevision((value) => value + 1)}
+          />
+        )}
+        {resourceError && (
+          <FeedbackMessage
+            message={`Tag and game choices: ${resourceError}`}
+            onDismiss={() => setResourceError("")}
+            onRetry={() => setResourceRevision((value) => value + 1)}
+          />
+        )}
+        {notice && (
+          <FeedbackMessage className="notice" message={notice} onDismiss={() => setNotice("")} tone="success" />
+        )}
 
         <section className="wiki-categories" aria-live="polite">
           {loading && wiki.categories.length === 0 ? (
             <div className="empty-state" role="status" aria-live="polite"><p>Opening the field guide…</p></div>
           ) : visibleCategories.length === 0 ? (
             <div className="wiki-empty">
-              <span className="eyebrow">{query.trim() ? "NO MATCHING NOTES" : "A NEW CHAPTER"}</span>
+              <Eyebrow>{query.trim() ? "NO MATCHING NOTES" : "A NEW CHAPTER"}</Eyebrow>
               <h2>{query.trim() ? "Nothing found in the field guide." : "Start with a category."}</h2>
               <p>
                 {query.trim()
@@ -370,9 +346,9 @@ export function Wiki({ player, onLogout }: WikiProps) {
                   : "Create a heading such as Strategies, Game Types, or Concepts."}
               </p>
               {!query.trim() && (
-                <button className="button button--primary" onClick={() => openCategoryEditor()} type="button">
+                <Button className="button button--primary" onClick={() => openCategoryEditor()} type="button">
                   ＋ Create a category
-                </button>
+                </Button>
               )}
             </div>
           ) : visibleCategories.map((category) => {
@@ -381,17 +357,17 @@ export function Wiki({ player, onLogout }: WikiProps) {
               <section className="wiki-category" key={category.id}>
                 <header className="wiki-category__heading">
                   <div>
-                    <span className="eyebrow">FIELD NOTES · {entries.length} {entries.length === 1 ? "ENTRY" : "ENTRIES"}</span>
+                    <Eyebrow>FIELD NOTES · {entries.length} {entries.length === 1 ? "ENTRY" : "ENTRIES"}</Eyebrow>
                     <h2>{category.title}</h2>
                   </div>
                   <div className="wiki-category__actions">
-                    <button className="button button--quiet" onClick={() => openEntryEditor()} type="button">
+                    <Button className="button button--quiet" onClick={() => openEntryEditor()} type="button">
                       ＋ Entry
-                    </button>
-                    <button className="button button--quiet" onClick={() => openCategoryEditor(category)} type="button">
+                    </Button>
+                    <Button className="button button--quiet" onClick={() => openCategoryEditor(category)} type="button">
                       Edit title
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       aria-label={`Delete ${category.title} category`}
                       className="button button--danger"
                       disabled={category._count.entries > 0}
@@ -400,7 +376,7 @@ export function Wiki({ player, onLogout }: WikiProps) {
                       type="button"
                     >
                       Delete
-                    </button>
+                    </Button>
                   </div>
                 </header>
                 {entries.length ? (
@@ -425,14 +401,14 @@ export function Wiki({ player, onLogout }: WikiProps) {
                               <span className="wiki-entry__related-label">RELATED TAGS</span>
                               <div>
                                 {entry.tags.map((tag) => (
-                                  <button
+                                  <Button
                                     className="wiki-tag"
                                     key={tag.id}
                                     onClick={() => setQuery(tag.name)}
                                     type="button"
                                   >
                                     #{tag.name}
-                                  </button>
+                                  </Button>
                                 ))}
                               </div>
                             </div>
@@ -450,16 +426,16 @@ export function Wiki({ player, onLogout }: WikiProps) {
                             </div>
                           )}
                           <div className="wiki-entry__actions">
-                            <button className="button button--quiet" onClick={() => openEntryEditor(entry)} type="button">
+                            <Button className="button button--quiet" onClick={() => openEntryEditor(entry)} type="button">
                               Edit entry
-                            </button>
-                            <button
+                            </Button>
+                            <Button
                               className="button button--danger"
                               onClick={() => setPendingDelete({ kind: "entry", entry })}
                               type="button"
                             >
                               Delete entry
-                            </button>
+                            </Button>
                           </div>
                         </div>
                       </details>
@@ -469,9 +445,9 @@ export function Wiki({ player, onLogout }: WikiProps) {
                   <div className="wiki-category__empty">
                     <p>{query.trim() ? "No entries in this category match your search." : "No entries here yet."}</p>
                     {!query.trim() && (
-                      <button className="button button--quiet" onClick={() => openEntryEditor()} type="button">
+                      <Button className="button button--quiet" onClick={() => openEntryEditor()} type="button">
                         Write the first entry
-                      </button>
+                      </Button>
                     )}
                   </div>
                 )}
@@ -492,10 +468,10 @@ export function Wiki({ player, onLogout }: WikiProps) {
           >
             <header className="play-log-editor__heading">
               <div>
-                <span className="eyebrow">ORGANIZE THE FIELD GUIDE</span>
+                <Eyebrow>ORGANIZE THE FIELD GUIDE</Eyebrow>
                 <h2 id="wiki-category-editor-title">{categoryDraft.id ? "Edit category" : "New category"}</h2>
               </div>
-              <button
+              <Button
                 aria-label="Close category editor"
                 className="play-log-editor__close"
                 disabled={saving}
@@ -503,7 +479,7 @@ export function Wiki({ player, onLogout }: WikiProps) {
                 type="button"
               >
                 ×
-              </button>
+              </Button>
             </header>
             <div className="play-log-editor__fields wiki-category-editor__fields">
               <label>
@@ -511,14 +487,16 @@ export function Wiki({ player, onLogout }: WikiProps) {
                 <input autoFocus defaultValue={categoryDraft.title} maxLength={80} name="title" required />
               </label>
             </div>
-            {modalError && <p className="form-error" role="alert">{modalError}</p>}
+            {modalError && (
+              <FeedbackMessage className="form-error" message={modalError} onDismiss={() => setModalError("")} />
+            )}
             <div className="play-log-editor__footer">
-              <button className="button button--quiet" disabled={saving} onClick={() => setCategoryDraft(null)} type="button">
+              <Button className="button button--quiet" disabled={saving} onClick={() => setCategoryDraft(null)} type="button">
                 Cancel
-              </button>
-              <button className="button button--primary" disabled={saving} type="submit">
+              </Button>
+              <Button className="button button--primary" disabled={saving} type="submit">
                 {saving ? "Saving…" : categoryDraft.id ? "Save category" : "Create category"}
-              </button>
+              </Button>
             </div>
           </form>
         </div>
@@ -535,10 +513,10 @@ export function Wiki({ player, onLogout }: WikiProps) {
           >
             <header className="play-log-editor__heading">
               <div>
-                <span className="eyebrow">A NOTE FOR THE TABLE</span>
+                <Eyebrow>A NOTE FOR THE TABLE</Eyebrow>
                 <h2 id="wiki-entry-editor-title">{entryDraft.id ? "Edit wiki entry" : "New wiki entry"}</h2>
               </div>
-              <button
+              <Button
                 aria-label="Close entry editor"
                 className="play-log-editor__close"
                 disabled={saving}
@@ -546,7 +524,7 @@ export function Wiki({ player, onLogout }: WikiProps) {
                 type="button"
               >
                 ×
-              </button>
+              </Button>
             </header>
             <div className="play-log-editor__fields wiki-entry-editor__fields">
               <label>
@@ -577,22 +555,22 @@ export function Wiki({ player, onLogout }: WikiProps) {
               <div className="wiki-markdown-editor__heading">
                 <span className="field-label">MARKDOWN</span>
                 <div>
-                  <button
+                  <Button
                     aria-pressed={!previewing}
                     className={!previewing ? "is-selected" : ""}
                     onClick={() => setPreviewing(false)}
                     type="button"
                   >
                     Write
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     aria-pressed={previewing}
                     className={previewing ? "is-selected" : ""}
                     onClick={() => setPreviewing(true)}
                     type="button"
                   >
                     Preview
-                  </button>
+                  </Button>
                 </div>
               </div>
               {previewing ? (
@@ -660,14 +638,16 @@ export function Wiki({ player, onLogout }: WikiProps) {
               </fieldset>
             </div>
 
-            {modalError && <p className="form-error" role="alert">{modalError}</p>}
+            {modalError && (
+              <FeedbackMessage className="form-error" message={modalError} onDismiss={() => setModalError("")} />
+            )}
             <div className="play-log-editor__footer">
-              <button className="button button--quiet" disabled={saving} onClick={() => setEntryDraft(null)} type="button">
+              <Button className="button button--quiet" disabled={saving} onClick={() => setEntryDraft(null)} type="button">
                 Cancel
-              </button>
-              <button className="button button--primary" disabled={saving} type="submit">
+              </Button>
+              <Button className="button button--primary" disabled={saving} type="submit">
                 {saving ? "Saving…" : entryDraft.id ? "Save entry" : "Create entry"}
-              </button>
+              </Button>
             </div>
           </form>
         </div>
@@ -682,7 +662,7 @@ export function Wiki({ player, onLogout }: WikiProps) {
             role="alertdialog"
           >
             <span aria-hidden="true" className="sweet-alert__seal">⌫</span>
-            <span className="eyebrow">REMOVE FROM THE FIELD GUIDE</span>
+            <Eyebrow>REMOVE FROM THE FIELD GUIDE</Eyebrow>
             <h2 id="wiki-delete-title">
               Delete {pendingDelete.kind === "category" ? "category" : "entry"}?
             </h2>
@@ -693,12 +673,12 @@ export function Wiki({ player, onLogout }: WikiProps) {
               {pendingDelete.kind === "entry" && " Its links to tags and games will also be removed."}
             </p>
             <div className="sweet-alert__actions">
-              <button className="button button--quiet" disabled={saving} onClick={() => setPendingDelete(null)} type="button">
+              <Button className="button button--quiet" disabled={saving} onClick={() => setPendingDelete(null)} type="button">
                 Keep it
-              </button>
-              <button className="button sweet-alert__confirm" disabled={saving} onClick={() => void deleteItem()} type="button">
+              </Button>
+              <Button className="button sweet-alert__confirm" disabled={saving} onClick={() => void deleteItem()} type="button">
                 {saving ? "Removing…" : "Delete"}
-              </button>
+              </Button>
             </div>
           </section>
         </div>

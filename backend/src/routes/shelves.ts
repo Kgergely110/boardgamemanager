@@ -1,6 +1,7 @@
 import { Router, Request, Response } from "express";
 import { z } from "zod";
 import prisma from "../lib/prisma.js";
+import { sendApiError, sendValidationError } from "../lib/http.js";
 
 const router = Router();
 
@@ -31,10 +32,7 @@ router.get("/", async (_req: Request, res: Response) => {
 router.post("/", async (req: Request, res: Response) => {
   const result = createShelfSchema.safeParse(req.body);
   if (!result.success) {
-    res.status(400).json({
-      error: "Invalid shelf",
-      details: result.error.flatten().fieldErrors,
-    });
+    sendValidationError(res, result.error, "Invalid shelf");
     return;
   }
 
@@ -49,15 +47,12 @@ router.post("/", async (req: Request, res: Response) => {
 router.patch("/:id", async (req: Request, res: Response) => {
   const id = shelfIdSchema.safeParse(req.params.id);
   if (!id.success) {
-    res.status(400).json({ error: "Invalid container id" });
+    sendValidationError(res, id.error, "Invalid container id");
     return;
   }
   const result = updateShelfSchema.safeParse(req.body);
   if (!result.success) {
-    res.status(400).json({
-      error: "Invalid container update",
-      details: result.error.flatten().fieldErrors,
-    });
+    sendValidationError(res, result.error, "Invalid container update");
     return;
   }
 
@@ -66,7 +61,7 @@ router.patch("/:id", async (req: Request, res: Response) => {
     select: { id: true },
   });
   if (!existing) {
-    res.status(404).json({ error: "Container not found" });
+    sendApiError(res, 404, "Container not found");
     return;
   }
 
@@ -79,9 +74,7 @@ router.patch("/:id", async (req: Request, res: Response) => {
       },
     });
     if (gamesOnRemovedLevels > 0) {
-      res.status(409).json({
-        error: "Move games off the removed levels before reducing the level count",
-      });
+      sendApiError(res, 409, "Move games off the removed levels before reducing the level count");
       return;
     }
   }
@@ -97,7 +90,7 @@ router.patch("/:id", async (req: Request, res: Response) => {
 router.delete("/:id", async (req: Request, res: Response) => {
   const id = shelfIdSchema.safeParse(req.params.id);
   if (!id.success) {
-    res.status(400).json({ error: "Invalid container id" });
+    sendValidationError(res, id.error, "Invalid container id");
     return;
   }
   const shelf = await prisma.shelf.findUnique({
@@ -105,14 +98,13 @@ router.delete("/:id", async (req: Request, res: Response) => {
     select: { id: true },
   });
   if (!shelf) {
-    res.status(404).json({ error: "Container not found" });
+    sendApiError(res, 404, "Container not found");
     return;
   }
 
   const gameCount = await prisma.game.count({ where: { shelfId: shelf.id } });
   if (gameCount > 0) {
-    res.status(409).json({
-      error: "Move or remove all games before deleting this container",
+    sendApiError(res, 409, "Move or remove all games before deleting this container", "CONFLICT", {
       gameCount,
     });
     return;

@@ -8,6 +8,7 @@ const themes = [
   { id: "blue-hour", name: "Blue Hour & Brass" },
   { id: "rosewood", name: "Burgundy Parlour" },
   { id: "candlewick", name: "Walnut Reading Room" },
+  { id: "high-contrast", name: "High Contrast" },
 ] as const;
 
 type ThemeId = (typeof themes)[number]["id"];

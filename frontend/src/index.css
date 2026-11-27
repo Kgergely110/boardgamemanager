@@ -1,6 +1,4 @@
 @tailwind base;
-@tailwind components;
-@tailwind utilities;
 
 :root {
   font-family: "Source Sans 3 Variable", "Source Sans 3", sans-serif;
@@ -77,6 +75,18 @@
   --positive-text: #3e6049; --positive-surface: #e2eadc; --negative-text: #814332; --negative-surface: #f1dfd5;
   --bookcase-wood: #493528; --bookcase-inner: #3e3027; --bookcase-level: #51402f; --bookcase-plank: #a87842; --bookcover: #604535;
 }
+:root[data-theme="high-contrast"] {
+  color-scheme: light;
+  --ink: #000000; --muted: #1a1a1a; --paper: #ffffff; --paper-deep: #f0f0f0;
+  --forest: #000000; --forest-light: #111111; --brass: #000000; --rust: #800000;
+  --line: #000000; --shadow: 0 0 0 1px #000000;
+  --rail: #ffffff; --rail-ink: #000000; --rail-muted: #1a1a1a; --rail-line: #000000;
+  --rail-link: #000000; --rail-hover: #ffff00; --rail-selected: #ffff00;
+  --rail-selected-ink: #000000; --rail-accent: #000000; --rail-active: #800000;
+  --surface: #ffffff; --surface-muted: #f0f0f0; --surface-border: #000000; --accent-soft: #ffff00;
+  --positive-text: #004000; --positive-surface: #ffffff; --negative-text: #800000; --negative-surface: #ffffff;
+  --bookcase-wood: #000000; --bookcase-inner: #000000; --bookcase-level: #111111; --bookcase-plank: #ffff00; --bookcover: #111111;
+}
 
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; min-height: 100vh; background: var(--paper); }
@@ -95,6 +105,11 @@ label:has(input:required, select:required, textarea:required) > .field-label:fir
 }
 a, a:hover { text-decoration: none; }
 .required-mark { margin-left: 2px; color: var(--rust); font: 700 .8rem/1 "Source Sans 3 Variable", "Source Sans 3", sans-serif; }
+.ui-panel { min-width: 0; border: 1px solid var(--surface-border); border-radius: 15px; background: var(--surface); }
+.ui-text { margin: 0; line-height: 1.55; }
+.ui-text--muted { color: var(--muted); }
+.ui-field { min-width: 0; display: grid; gap: 7px; }
+.ui-list { min-width: 0; }
 
 .eyebrow, .rail-label, .breadcrumbs, .library-footer {
   font-family: "Source Sans 3 Variable", "Source Sans 3", sans-serif;
@@ -300,6 +315,12 @@ a, a:hover { text-decoration: none; }
 .notice { display: flex; align-items: center; justify-content: space-between; gap: 15px; margin-top: 17px; padding: 11px 14px; border-radius: 10px; color: var(--positive-text); background: var(--positive-surface); font: .82rem "Source Sans 3 Variable", "Source Sans 3", sans-serif; }
 .notice--error { color: var(--negative-text); background: var(--negative-surface); }
 .notice button { border: 0; color: inherit; background: transparent; text-decoration: none; font: .72rem "Source Sans 3 Variable", "Source Sans 3", sans-serif; }
+.feedback-message { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 10px 12px; border-radius: 10px; color: var(--rail-selected-ink); background: var(--surface-muted); font: .8rem/1.5 "Source Sans 3 Variable", "Source Sans 3", sans-serif; }
+.feedback-message--error { color: var(--negative-text); background: var(--negative-surface); }
+.feedback-message--success { color: var(--positive-text); background: var(--positive-surface); }
+.feedback-message__actions { display: flex; flex: 0 0 auto; align-items: center; gap: 8px; }
+.feedback-message__action { border: 0; padding: 3px 5px; color: inherit; background: transparent; font: inherit; text-decoration: underline; cursor: pointer; }
+.feedback-message__action:focus-visible { outline: 2px solid currentColor; outline-offset: 2px; }
 .inline-form { margin-top: 20px; padding: 23px; border: 1px solid var(--surface-border); border-radius: 16px; background: var(--surface-muted); box-shadow: 0 5px 20px rgba(40,38,28,.04); }
 .form-heading { grid-column: 1/-1; }
 .form-heading .eyebrow { color: var(--rust); }
@@ -1528,4 +1549,27 @@ a, a:hover { text-decoration: none; }
   .wishlist-field--wide { grid-column: auto; }
   .wishlist-editor__footer { justify-content: stretch; }
   .wishlist-editor__footer .button { flex: 1; }
+}
+
+:root[data-theme="high-contrast"] input,
+:root[data-theme="high-contrast"] select,
+:root[data-theme="high-contrast"] textarea {
+  border: 2px solid #000000;
+  color: #000000;
+  background: #ffffff;
+}
+:root[data-theme="high-contrast"] input::placeholder,
+:root[data-theme="high-contrast"] textarea::placeholder {
+  color: #333333;
+  opacity: 1;
+}
+:root[data-theme="high-contrast"] a {
+  text-decoration: underline;
+  text-decoration-thickness: 0.1em;
+  text-underline-offset: 0.15em;
+}
+:root[data-theme="high-contrast"] :is(button, a, input, select, textarea, [tabindex]):focus-visible {
+  outline: 3px solid #000000;
+  outline-offset: 3px;
+  box-shadow: 0 0 0 6px #ffff00;
 }

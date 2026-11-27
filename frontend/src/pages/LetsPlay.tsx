@@ -1,11 +1,11 @@
+import { Button, ButtonLink, Eyebrow, FeedbackMessage } from "../components/ui";
+import { LibraryNavigation, LibraryRail, LibraryTopbar } from "../components/LibraryChrome";
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { X } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
-import { DevelopmentUserMenu } from "../components/DevelopmentUserMenu";
+import { useNavigate } from "react-router-dom";
 import { GameNightPanel } from "../components/GameNightPanel";
-import { LibraryIcon, LibraryMark } from "../components/LibraryIcon";
+import { LibraryIcon } from "../components/LibraryIcon";
 import { OngoingGamesList } from "../components/OngoingGamesList";
-import { ThemePicker } from "../components/ThemePicker";
 import { api, getErrorMessage } from "../lib/api";
 import { matchesGameSearch } from "../lib/gameSearch";
 import { revealAndFocus } from "../lib/navigation";
@@ -52,6 +52,7 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
   const [tags, setTags] = useState<Tag[]>([]);
   const [appPlayers, setAppPlayers] = useState<AppPlayerOption[]>([]);
   const [resourcesLoading, setResourcesLoading] = useState(true);
+  const [resourcesRevision, setResourcesRevision] = useState(0);
   const [resourceError, setResourceError] = useState("");
   const [choice, setChoice] = useState<GameChoice | null>(null);
   const [drawMessage, setDrawMessage] = useState("");
@@ -67,6 +68,7 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
   const [guestGames, setGuestGames] = useState<GuestGamePage | null>(null);
   const [guestLoading, setGuestLoading] = useState(false);
   const [guestError, setGuestError] = useState("");
+  const [guestRevision, setGuestRevision] = useState(0);
   const [newGuestName, setNewGuestName] = useState("");
   const [setupOpen, setSetupOpen] = useState(false);
   const [starting, setStarting] = useState(false);
@@ -97,16 +99,20 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
 
   useEffect(() => {
     let active = true;
-    Promise.all([
+    setResourceError("");
+    Promise.allSettled([
       api.get<{ data: Game[] }>("/games"),
       api.get<{ data: Tag[] }>("/tags"),
       api.get<{ data: AppPlayerOption[] }>("/players"),
     ])
-      .then(([gameResponse, tagResponse, playerResponse]) => {
+      .then(([gameResult, tagResult, playerResult]) => {
         if (!active) return;
-        setGames(gameResponse.data.data);
-        setTags(tagResponse.data.data);
-        setAppPlayers(playerResponse.data.data);
+        if (gameResult.status === "fulfilled") setGames(gameResult.value.data.data);
+        else setResourceError(getErrorMessage(gameResult.reason));
+        if (tagResult.status === "fulfilled") setTags(tagResult.value.data.data);
+        else setResourceError(getErrorMessage(tagResult.reason));
+        if (playerResult.status === "fulfilled") setAppPlayers(playerResult.value.data.data);
+        else setResourceError(getErrorMessage(playerResult.reason));
       })
       .catch((requestError: unknown) => {
         if (active) setResourceError(getErrorMessage(requestError));
@@ -115,7 +121,7 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
         if (active) setResourcesLoading(false);
       });
     return () => { active = false; };
-  }, []);
+  }, [resourcesRevision]);
 
   useEffect(() => {
     let active = true;
@@ -139,7 +145,7 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
       active = false;
       window.clearTimeout(timer);
     };
-  }, [guestPage, guestQuery]);
+  }, [guestPage, guestQuery, guestRevision]);
 
   const filteredGames = useMemo(() => games.filter((game) => {
     if (selectedTagIds.some((tagId) => !game.tags.some((tag) => tag.id === tagId))) return false;
@@ -264,6 +270,7 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
       return;
     }
     const game = candidates[Math.floor(Math.random() * candidates.length)];
+    if (!game) return;
     selectGame({ kind: "library", game });
     setDrawMessage("");
   }
@@ -289,62 +296,17 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
 
   return (
     <div className="library-shell lets-play-shell">
-      <aside className="library-rail">
-        <Link className="brand-mark" to="/" aria-label="Board Game Library home">
-          <LibraryMark className="brand-mark__symbol" />
-          <span className="brand-mark__name">The Game<br />Library</span>
-        </Link>
-        <div className="rail-divider" />
-        <span className="rail-label">YOUR COLLECTION</span>
-        <nav className="shelf-nav" aria-label="Library navigation">
-          <Link className="shelf-nav__item" to="/">
-            <span className="shelf-nav__glyph"><LibraryIcon name="collection" /></span>
-            <span>All games</span>
-          </Link>
-        </nav>
-        <div className="rail-utility">
-          <span className="rail-label">GAME NIGHT</span>
-          <Link className="shelf-nav__item is-selected" to="/lets-play" aria-current="page">
-            <span className="shelf-nav__glyph"><LibraryIcon name="play" /></span>
-            <span>Let’s play</span>
-          </Link>
-          <Link className="shelf-nav__item" to="/logs">
-            <span className="shelf-nav__glyph"><LibraryIcon name="chronicle" /></span>
-            <span>Game logs</span>
-          </Link>
-          <Link className="shelf-nav__item" to="/wishlist">
-            <span className="shelf-nav__glyph"><LibraryIcon name="wishlist" /></span>
-            <span>Wishlist</span>
-          </Link>
-        </div>
-        <div className="rail-utility">
-          <span className="rail-label">REFERENCE</span>
-          <Link className="shelf-nav__item" to="/wiki">
-            <span className="shelf-nav__glyph"><LibraryIcon name="wiki" /></span>
-            <span>Game wiki</span>
-          </Link>
-          <Link className="shelf-nav__item" to="/ambience">
-            <span className="shelf-nav__glyph"><LibraryIcon name="ambience" /></span>
-            <span>Ambience</span>
-          </Link>
-        </div>
-        {import.meta.env.DEV && player.isAdmin && <DevelopmentUserMenu player={player} />}
-        <div className="rail-bottom">
-          <span className="rail-bottom__avatar">{player.fullName.slice(0, 1).toUpperCase()}</span>
-          <span className="rail-bottom__identity"><strong>{player.fullName}</strong><small>Keeper of the collection</small></span>
-          <button className="logout-button" onClick={onLogout} title="Sign out" aria-label="Sign out">↗</button>
-        </div>
-      </aside>
+      <LibraryRail player={player} onLogout={onLogout}>
+        <LibraryNavigation activePage="lets-play" />
+        
+      </LibraryRail>
 
       <main className="library-main lets-play-main">
-        <header className="library-topbar">
-          <div className="breadcrumbs"><span>GAME NIGHT</span><b>/</b><strong>LET’S PLAY</strong></div>
-          <ThemePicker />
-        </header>
+        <LibraryTopbar section="GAME NIGHT" page="LET’S PLAY" />
 
         <section className="lets-play-heading">
           <div>
-            <span className="eyebrow">GATHER ROUND THE TABLE</span>
+            <Eyebrow>GATHER ROUND THE TABLE</Eyebrow>
             <h1>{choice ? (setupOpen ? "Set the table." : "Your game is ready.") : "What shall we play?"}</h1>
             <p>{choice ? "Your game selection is ready for the group." : "Pick a familiar favorite, or let the shelves decide."}</p>
           </div>
@@ -353,18 +315,31 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
         <OngoingGamesList />
         <GameNightPanel onActiveNightChange={handleActiveNightChange} />
 
-        {(resourceError || drawMessage) && (
-          <div className={resourceError ? "notice notice--error" : "lets-play-notice"} role={resourceError ? "alert" : "status"}>
-            {resourceError || drawMessage}
-            {resourceError && <button onClick={() => setResourceError("")} type="button">Dismiss</button>}
-          </div>
+        {resourceError && (
+          <FeedbackMessage
+            className="notice notice--error"
+            message={resourceError}
+            onDismiss={() => setResourceError("")}
+            onRetry={() => {
+              setResourcesLoading(true);
+              setResourcesRevision((value) => value + 1);
+            }}
+          />
+        )}
+        {drawMessage && (
+          <FeedbackMessage
+            className="lets-play-notice"
+            message={drawMessage}
+            onDismiss={() => setDrawMessage("")}
+            tone="info"
+          />
         )}
 
         {choice && (
           <section className="lets-play-choice" aria-live="polite" aria-label="Selected game" ref={choiceRef}>
             <div className="lets-play-choice__mark"><LibraryIcon name={choice.kind === "guest" ? "collection" : "play"} /></div>
             <div className="lets-play-choice__details">
-              <span className="eyebrow">{choice.kind === "guest" ? "GUEST GAME" : "YOUR NEXT GAME"}</span>
+              <Eyebrow>{choice.kind === "guest" ? "GUEST GAME" : "YOUR NEXT GAME"}</Eyebrow>
               <h2>{choice.game.name}</h2>
               {choice.kind === "library" ? (
                 <>
@@ -383,18 +358,18 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
               </p>
             </div>
             <div className="lets-play-choice__actions">
-              <button className="button button--quiet" onClick={clearGameChoice} type="button">
+              <Button className="button button--quiet" onClick={clearGameChoice} type="button">
                 ← Back to choices
-              </button>
+              </Button>
               {choice.kind === "library" && (
-                <Link className="button button--quiet" to={`/games/${choice.game.id}`}>
+                <ButtonLink to={`/games/${choice.game.id}`} variant="quiet">
                   Open dossier
-                </Link>
+                </ButtonLink>
               )}
               {!setupOpen && (
-                <button className="button button--primary" onClick={() => { setSetupOpen(true); setSetupError(""); }} type="button">
+                <Button className="button button--primary" onClick={() => { setSetupOpen(true); setSetupError(""); }} type="button">
                   Choose game
-                </button>
+                </Button>
               )}
             </div>
           </section>
@@ -404,7 +379,7 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
           <section className="lets-play-session-setup" aria-labelledby="lets-play-session-title" ref={setupRef}>
             <header className="lets-play-session-setup__heading">
               <div>
-                <span className="eyebrow">SET THE TABLE</span>
+                <Eyebrow>SET THE TABLE</Eyebrow>
                 <h2 id="lets-play-session-title">Who’s playing?</h2>
                 <p>
                   {choice.kind === "library" && choice.game.minPlayers
@@ -447,16 +422,22 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
                   <input autoComplete="off" maxLength={100} required value={guestPlayerName} onChange={(event) => setGuestPlayerName(event.target.value)} placeholder="Enter a player’s name" />
                 </label>
               )}
-              <button
+              <Button
                 className="button button--quiet"
                 disabled={!canAddParticipant || (participantKind === "app" ? !selectedAppPlayerId : !guestPlayerName.trim())}
                 type="submit"
               >
                 {canAddParticipant ? "＋ Add player" : "Player limit reached"}
-              </button>
+              </Button>
             </form>
 
-            {setupError && <p className="lets-play-session-setup__error" role="alert">{setupError}</p>}
+            {setupError && (
+              <FeedbackMessage
+                className="lets-play-session-setup__error"
+                message={setupError}
+                onDismiss={() => setSetupError("")}
+              />
+            )}
 
             {tableParticipants.length ? (
               <ul className="lets-play-table-players" aria-label="Players at the table" aria-live="polite">
@@ -467,7 +448,7 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
                       <span className="lets-play-table-player__name">{participant.name}</span>
                       <small className="lets-play-table-player__type">{participant.kind === "app" ? "App user" : "Guest"}</small>
                     </span>
-                    <button
+                    <Button
                       aria-label={`Remove ${participant.name}`}
                       className="lets-play-table-player__remove"
                       onClick={() => {
@@ -477,7 +458,7 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
                       type="button"
                     >
                       <X aria-hidden="true" size={15} />
-                    </button>
+                    </Button>
                   </li>
                 ))}
               </ul>
@@ -498,9 +479,9 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
                   ? "The table has enough players to start."
                   : `${minimumPlayers - tableParticipants.length} more ${minimumPlayers - tableParticipants.length === 1 ? "player" : "players"} needed to start.`}
               </span>
-              <button className="button button--primary" disabled={!canStartSession || !gameNightReady || starting} onClick={() => void startSession()} type="button">
+              <Button className="button button--primary" disabled={!canStartSession || !gameNightReady || starting} onClick={() => void startSession()} type="button">
                 {starting ? "Starting…" : "Start game"}
-              </button>
+              </Button>
             </footer>
           </section>
         )}
@@ -511,24 +492,24 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
           <section className="lets-play-panel lets-play-random">
             <div className="lets-play-panel__heading">
               <span className="lets-play-panel__number">01</span>
-              <div><span className="eyebrow">THE FULL SHELF</span><h2>Surprise us</h2></div>
+              <div><Eyebrow>THE FULL SHELF</Eyebrow><h2>Surprise us</h2></div>
             </div>
             <p>Draw one game at random from the whole library.</p>
             <span className="lets-play-panel__count">{resourcesLoading ? "Gathering the collection…" : `${games.length} games in the draw`}</span>
-            <button
+            <Button
               className="button button--primary"
               disabled={resourcesLoading || games.length === 0}
               onClick={() => chooseRandom(games)}
               type="button"
             >
               Pick a random game
-            </button>
+            </Button>
           </section>
 
           <section className="lets-play-panel lets-play-filter">
             <div className="lets-play-panel__heading">
               <span className="lets-play-panel__number">02</span>
-              <div><span className="eyebrow">SET THE TABLE</span><h2>Find a fit</h2></div>
+              <div><Eyebrow>SET THE TABLE</Eyebrow><h2>Find a fit</h2></div>
             </div>
             <p>Draw from games that suit the group and the evening.</p>
             <div className="lets-play-filter__fields">
@@ -554,45 +535,45 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
             </fieldset>
             <div className="lets-play-filter__footer">
               <span>{resourcesLoading ? "Filtering…" : `${filteredGames.length} matching ${filteredGames.length === 1 ? "game" : "games"}`}</span>
-              <button
+              <Button
                 className="button button--primary"
                 disabled={resourcesLoading || filteredGames.length === 0}
                 onClick={() => chooseRandom(filteredGames)}
                 type="button"
               >
                 Draw from matches
-              </button>
+              </Button>
             </div>
             {(playersAtTable || maxPlayTime || selectedTagIds.length > 0) && (
-              <button
+              <Button
                 className="lets-play-filter__reset"
                 onClick={() => { setPlayersAtTable(""); setMaxPlayTime(""); setSelectedTagIds([]); }}
                 type="button"
               >
                 Clear filters
-              </button>
+              </Button>
             )}
           </section>
         </div>
 
         <section className="lets-play-picker" aria-labelledby="lets-play-picker-title">
           <div className="lets-play-picker__heading">
-            <div><span className="eyebrow">MAKE THE CALL</span><h2 id="lets-play-picker-title">Choose a game</h2></div>
+            <div><Eyebrow>MAKE THE CALL</Eyebrow><h2 id="lets-play-picker-title">Choose a game</h2></div>
             <span>Pick from the shelves or choose a guest title.</span>
           </div>
           <div className="lets-play-picker__tabs" role="group" aria-label="Game source">
-            <button aria-pressed={choiceList === "library"} className={choiceList === "library" ? "is-selected" : ""} onClick={() => setChoiceList("library")} type="button">
+            <Button aria-pressed={choiceList === "library"} className={choiceList === "library" ? "is-selected" : ""} onClick={() => setChoiceList("library")} type="button">
               <LibraryIcon name="collection" /> Library games
-            </button>
-            <button aria-pressed={choiceList === "guest"} className={choiceList === "guest" ? "is-selected" : ""} onClick={() => setChoiceList("guest")} type="button">
+            </Button>
+            <Button aria-pressed={choiceList === "guest"} className={choiceList === "guest" ? "is-selected" : ""} onClick={() => setChoiceList("guest")} type="button">
               <LibraryIcon name="play" /> Guest games
-            </button>
+            </Button>
           </div>
 
           {choiceList === "library" ? (
             <>
               <div className="lets-play-explicit-filters">
-                <span className="eyebrow">REFINE THIS LIST</span>
+                <Eyebrow>REFINE THIS LIST</Eyebrow>
                 <div className="lets-play-explicit-filters__fields">
                   <label>
                     Players at the table
@@ -605,7 +586,7 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
                 </div>
                 <p>Search titles or makers, or start with <strong>#</strong> to search game tags.</p>
                 {(explicitPlayersAtTable || explicitMaxPlayTime || libraryQuery) && (
-                  <button
+                  <Button
                     className="lets-play-explicit-filters__reset"
                     onClick={() => {
                       setExplicitPlayersAtTable("");
@@ -615,7 +596,7 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
                     type="button"
                   >
                     Clear filters
-                  </button>
+                  </Button>
                 )}
               </div>
               <label className="lets-play-search">
@@ -632,12 +613,12 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
               {resourcesLoading ? <p className="lets-play-empty">Opening the shelves…</p> : libraryOptions.length ? (
                 <div className="lets-play-options">
                   {libraryOptions.map((game) => (
-                    <button className="lets-play-option" key={game.id} onClick={() => selectGame({ kind: "library", game })} type="button">
+                    <Button className="lets-play-option" key={game.id} onClick={() => selectGame({ kind: "library", game })} type="button">
                       <span className="lets-play-option__cover">{game.imageUrl ? <img alt="" src={game.imageUrl} /> : <LibraryIcon name="collection" />}</span>
                       <span className="lets-play-option__details">
                         <strong>{game.name}</strong><small>{game.maker} · {game.shelf.name} · LEVEL {game.shelfNumber} · {playerRange(game)}</small>
                       </span>
-                    </button>
+                    </Button>
                   ))}
                 </div>
               ) : (
@@ -659,14 +640,24 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
                 </label>
                 <span className="lets-play-search__count">{guestGames?.pagination.total ?? "—"} saved</span>
               </form>
-              {guestError && <div className="notice notice--error" role="alert">{guestError}</div>}
+              {guestError && (
+                <FeedbackMessage
+                  className="notice notice--error"
+                  message={guestError}
+                  onDismiss={() => setGuestError("")}
+                  onRetry={() => {
+                    setGuestLoading(true);
+                    setGuestRevision((value) => value + 1);
+                  }}
+                />
+              )}
               {guestLoading ? <p className="lets-play-empty">Searching guest games…</p> : guestGames?.data.length ? (
                 <div className="lets-play-options">
                   {guestGames.data.map((game) => (
-                    <button className="lets-play-option" key={game.id} onClick={() => chooseGuest(game)} type="button">
+                    <Button className="lets-play-option" key={game.id} onClick={() => chooseGuest(game)} type="button">
                       <span className="lets-play-option__cover lets-play-option__cover--guest"><LibraryIcon name="play" /></span>
                       <span className="lets-play-option__details"><strong>{game.name}</strong><small>Saved guest game · not in the collection</small></span>
-                    </button>
+                    </Button>
                   ))}
                 </div>
               ) : (
@@ -674,16 +665,16 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
               )}
               {guestGames && guestGames.pagination.totalPages > 1 && (
                 <div className="lets-play-guest-pagination">
-                  <button className="button button--quiet" disabled={guestPage <= 1 || guestLoading} onClick={() => setGuestPage((page) => page - 1)} type="button">Previous</button>
+                  <Button className="button button--quiet" disabled={guestPage <= 1 || guestLoading} onClick={() => setGuestPage((page) => page - 1)} type="button">Previous</Button>
                   <span>Page {guestPage} of {guestGames.pagination.totalPages}</span>
-                  <button className="button button--quiet" disabled={guestPage >= guestGames.pagination.totalPages || guestLoading} onClick={() => setGuestPage((page) => page + 1)} type="button">Next</button>
+                  <Button className="button button--quiet" disabled={guestPage >= guestGames.pagination.totalPages || guestLoading} onClick={() => setGuestPage((page) => page + 1)} type="button">Next</Button>
                 </div>
               )}
               <form className="lets-play-new-guest" onSubmit={chooseGuestName}>
                 <label htmlFor="new-guest-game-name">Or choose a guest game by name</label>
                 <div>
                   <input id="new-guest-game-name" maxLength={120} value={newGuestName} onChange={(event) => setNewGuestName(event.target.value)} placeholder="Enter a game title…" />
-                  <button className="button button--quiet" disabled={!newGuestName.trim()} type="submit">Choose title</button>
+                  <Button className="button button--quiet" disabled={!newGuestName.trim()} type="submit">Choose title</Button>
                 </div>
                 <small>This is only a selection for now; it won’t be saved to your history.</small>
               </form>

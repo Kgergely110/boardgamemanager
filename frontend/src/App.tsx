@@ -1,7 +1,8 @@
+import { Button, Eyebrow, FeedbackMessage } from "./components/ui";
 import { useEffect, useState } from "react";
 import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AuthPanel } from "./components/AuthPanel";
-import { api, getErrorMessage, setAuthToken } from "./lib/api";
+import { api, getErrorMessage, isUnauthorizedError, setAuthToken } from "./lib/api";
 import { Ambience } from "./pages/Ambience";
 import { GameDetails } from "./pages/GameDetails";
 import { Library } from "./pages/Library";
@@ -12,7 +13,6 @@ import { Wiki } from "./pages/Wiki";
 import { Wishlist } from "./pages/Wishlist";
 import { scrollToPageTop } from "./lib/navigation";
 import { AuthResponse, Player } from "./types";
-import "./index.css";
 
 type AppScreen = "loading" | "setup" | "login" | "library" | "offline";
 
@@ -62,7 +62,8 @@ function App() {
           setPlayer(current.data.player);
           setScreen("library");
           return;
-        } catch {
+        } catch (requestError) {
+          if (!isUnauthorizedError(requestError)) throw requestError;
           setAuthToken(null);
         }
       }
@@ -124,10 +125,10 @@ function App() {
   if (screen === "offline") {
     return (
       <main className="boot-screen boot-screen--error">
-        <span className="eyebrow">THE LIGHTS ARE LOW</span>
+        <Eyebrow>THE LIGHTS ARE LOW</Eyebrow>
         <h1>We can’t reach the library.</h1>
-        <p>{error}</p>
-        <button className="button button--primary" onClick={() => void refreshEntryState()}>Try again</button>
+        {error && <FeedbackMessage message={error} onDismiss={() => setError("")} />}
+        <Button className="button button--primary" onClick={() => void refreshEntryState()}>Try again</Button>
       </main>
     );
   }

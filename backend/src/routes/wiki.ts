@@ -2,6 +2,7 @@ import { Router, Request, Response } from "express";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import prisma from "../lib/prisma.js";
+import { sendApiError, sendValidationError } from "../lib/http.js";
 
 const router = Router();
 export const idSchema = z.string().uuid();
@@ -51,23 +52,15 @@ const entrySelect = {
   },
 } satisfies Prisma.WikiEntrySelect;
 
-function sendValidationError(res: Response, error: z.ZodError): void {
-  res.status(400).json({
-    error: "Invalid request",
-    details: error.flatten().fieldErrors,
-  });
-}
-
 function isKnownError(error: unknown, code: string): boolean {
   return error instanceof Prisma.PrismaClientKnownRequestError && error.code === code;
 }
 
 async function validateAssociations(
-  res: Response,
   categoryId: string,
   tagIds: string[],
   gameIds: string[],
-): Promise<boolean> {
+): Promise<string | null> {
   const [category, tags, games] = await Promise.all([
     prisma.wikiCategory.findUnique({ where: { id: categoryId }, select: { id: true } }),
     tagIds.length
@@ -81,18 +74,15 @@ async function validateAssociations(
       : [],
   ]);
   if (!category) {
-    res.status(400).json({ error: "Choose an existing wiki category" });
-    return false;
+    return "Choose an existing wiki category";
   }
   if (tags.length !== tagIds.length) {
-    res.status(400).json({ error: "One or more selected tags no longer exist" });
-    return false;
+    return "One or more selected tags no longer exist";
   }
   if (games.length !== gameIds.length) {
-    res.status(400).json({ error: "Examples must be active games in the library" });
-    return false;
+    return "Examples must be active games in the library";
   }
-  return true;
+  return null;
 }
 
 async function isDuplicateEntry(
@@ -170,7 +160,7 @@ router.post("/categories", async (req: Request, res: Response) => {
     select: { id: true },
   });
   if (duplicate) {
-    res.status(409).json({ error: "A category with this title already exists" });
+    sendApiError(res, 409, "A category with this title already exists");
     return;
   }
 
@@ -182,7 +172,7 @@ router.post("/categories", async (req: Request, res: Response) => {
     res.status(201).json({ data: category });
   } catch (error) {
     if (isKnownError(error, "P2002")) {
-      res.status(409).json({ error: "A category with this title already exists" });
+      sendApiError(res, 409, "A category with this title already exists");
       return;
     }
     throw error;
@@ -202,7 +192,7 @@ router.patch("/categories/:id", async (req: Request, res: Response) => {
   }
   const existing = await prisma.wikiCategory.findUnique({ where: { id: id.data } });
   if (!existing) {
-    res.status(404).json({ error: "Wiki category not found" });
+    sendApiError(res, 404, "Wiki category not found");
     return;
   }
   if (result.data.title) {
@@ -214,7 +204,7 @@ router.patch("/categories/:id", async (req: Request, res: Response) => {
       select: { id: true },
     });
     if (duplicate) {
-      res.status(409).json({ error: "A category with this title already exists" });
+      sendApiError(res, 409, "A category with this title already exists");
       return;
     }
   }
@@ -228,7 +218,7 @@ router.patch("/categories/:id", async (req: Request, res: Response) => {
     res.json({ data: category });
   } catch (error) {
     if (isKnownError(error, "P2002")) {
-      res.status(409).json({ error: "A category with this title already exists" });
+      sendApiError(res, 409, "A category with this title already exists");
       return;
     }
     throw error;
@@ -246,18 +236,18 @@ router.delete("/categories/:id", async (req: Request, res: Response) => {
     select: { id: true, _count: { select: { entries: true } } },
   });
   if (!category) {
-    res.status(404).json({ error: "Wiki category not found" });
+    sendApiError(res, 404, "Wiki category not found");
     return;
   }
   if (category._count.entries > 0) {
-    res.status(409).json({ error: "Move or delete this category's entries before deleting it" });
+    sendApiError(res, 409, "Move or delete this category's entries before deleting it");
     return;
   }
   try {
     await prisma.wikiCategory.delete({ where: { id: category.id } });
   } catch (error) {
     if (isKnownError(error, "P2003")) {
-      res.status(409).json({ error: "Move or delete the category entries before deleting it" });
+      sendApiError(res, 409, "Move or delete the category entries before deleting it");
       return;
     }
     throw error;
@@ -272,9 +262,13 @@ router.post("/entries", async (req: Request, res: Response) => {
     return;
   }
   const { title, content, categoryId, tagIds, gameIds } = result.data;
-  if (!(await validateAssociations(res, categoryId, tagIds, gameIds))) return;
+  const associationError = await validateAssociations(categoryId, tagIds, gameIds);
+  if (associationError) {
+    sendApiError(res, 422, associationError);
+    return;
+  }
   if (await isDuplicateEntry(categoryId, title)) {
-    res.status(409).json({ error: "An entry with this title already exists in the category" });
+    sendApiError(res, 409, "An entry with this title already exists in the category");
     return;
   }
 
@@ -292,7 +286,7 @@ router.post("/entries", async (req: Request, res: Response) => {
     res.status(201).json({ data: entry });
   } catch (error) {
     if (isKnownError(error, "P2002")) {
-      res.status(409).json({ error: "An entry with this title already exists in the category" });
+      sendApiError(res, 409, "An entry with this title already exists in the category");
       return;
     }
     throw error;
@@ -315,7 +309,7 @@ router.patch("/entries/:id", async (req: Request, res: Response) => {
     select: { id: true, title: true, categoryId: true },
   });
   if (!existing) {
-    res.status(404).json({ error: "Wiki entry not found" });
+    sendApiError(res, 404, "Wiki entry not found");
     return;
   }
 
@@ -323,16 +317,17 @@ router.patch("/entries/:id", async (req: Request, res: Response) => {
   const title = result.data.title ?? existing.title;
   const tagIds = result.data.tagIds ?? [];
   const gameIds = result.data.gameIds ?? [];
-  if (
-    !(await validateAssociations(
-      res,
-      categoryId,
-      result.data.tagIds ?? [],
-      result.data.gameIds ?? [],
-    ))
-  ) return;
+  const associationError = await validateAssociations(
+    categoryId,
+    result.data.tagIds ?? [],
+    result.data.gameIds ?? [],
+  );
+  if (associationError) {
+    sendApiError(res, 422, associationError);
+    return;
+  }
   if (await isDuplicateEntry(categoryId, title, existing.id)) {
-    res.status(409).json({ error: "An entry with this title already exists in the category" });
+    sendApiError(res, 409, "An entry with this title already exists in the category");
     return;
   }
 
@@ -358,7 +353,7 @@ router.patch("/entries/:id", async (req: Request, res: Response) => {
     res.json({ data: entry });
   } catch (error) {
     if (isKnownError(error, "P2002")) {
-      res.status(409).json({ error: "An entry with this title already exists in the category" });
+      sendApiError(res, 409, "An entry with this title already exists in the category");
       return;
     }
     throw error;
@@ -376,7 +371,7 @@ router.delete("/entries/:id", async (req: Request, res: Response) => {
     res.status(204).end();
   } catch (error) {
     if (isKnownError(error, "P2025")) {
-      res.status(404).json({ error: "Wiki entry not found" });
+      sendApiError(res, 404, "Wiki entry not found");
       return;
     }
     throw error;

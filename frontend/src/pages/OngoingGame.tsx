@@ -1,8 +1,7 @@
+import { Button, ButtonLink, Eyebrow, FeedbackMessage } from "../components/ui";
+import { LibraryNavigation, LibraryRail, LibraryTopbar } from "../components/LibraryChrome";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { DevelopmentUserMenu } from "../components/DevelopmentUserMenu";
-import { LibraryIcon, LibraryMark } from "../components/LibraryIcon";
-import { ThemePicker } from "../components/ThemePicker";
 import { api, getErrorMessage } from "../lib/api";
 import { getSpotifyEmbed } from "../lib/spotifyEmbed";
 import { AmbienceSet, OngoingGame as OngoingGameRecord, Player as AppPlayer } from "../types";
@@ -24,7 +23,9 @@ export function OngoingGame({ player, onLogout }: { player: AppPlayer; onLogout:
   const [ambienceSets, setAmbienceSets] = useState<AmbienceSet[]>([]);
   const [ambienceLoading, setAmbienceLoading] = useState(false);
   const [ambienceError, setAmbienceError] = useState("");
+  const [ambienceRetry, setAmbienceRetry] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [error, setError] = useState("");
   const [clockAction, setClockAction] = useState<ClockAction | null>(null);
   const [confirmFinish, setConfirmFinish] = useState(false);
@@ -33,6 +34,7 @@ export function OngoingGame({ player, onLogout }: { player: AppPlayer; onLogout:
   const [clockNow, setClockNow] = useState(() => performance.now());
   const [clockAnchor, setClockAnchor] = useState<{ elapsedSeconds: number; capturedAt: number } | null>(null);
   const refreshVersion = useRef(0);
+  const hasLoadedGame = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -57,10 +59,13 @@ export function OngoingGame({ player, onLogout }: { player: AppPlayer; onLogout:
         if (active) setAmbienceLoading(false);
       });
     return () => { active = false; };
-  }, [ongoingGame?.game?.id]);
+  }, [ambienceRetry, ongoingGame?.game?.id]);
 
   useEffect(() => {
     let active = true;
+    hasLoadedGame.current = false;
+    setOngoingGame(null);
+    setLoadFailed(false);
     async function loadOngoingGame() {
       const version = refreshVersion.current;
       if (!ongoingGameId) {
@@ -72,14 +77,19 @@ export function OngoingGame({ player, onLogout }: { player: AppPlayer; onLogout:
         const { data } = await api.get<{ data: OngoingGameRecord }>(`/ongoing-games/${ongoingGameId}`);
         if (active && refreshVersion.current === version) {
           const capturedAt = performance.now();
+          hasLoadedGame.current = true;
           setOngoingGame(data.data);
+          setLoadFailed(false);
           setClockAnchor({ elapsedSeconds: data.data.elapsedSeconds, capturedAt });
           setClockNow(capturedAt);
           setError("");
         }
       } catch (requestError) {
         if (active && refreshVersion.current === version) {
-          setOngoingGame(null);
+          if (!hasLoadedGame.current) {
+            setOngoingGame(null);
+            setLoadFailed(true);
+          }
           setError(getErrorMessage(requestError));
         }
       } finally {
@@ -176,69 +186,31 @@ export function OngoingGame({ player, onLogout }: { player: AppPlayer; onLogout:
 
   return (
     <div className="library-shell ongoing-game-shell">
-      <aside className="library-rail">
-        <Link className="brand-mark" to="/" aria-label="Board Game Library home">
-          <LibraryMark className="brand-mark__symbol" />
-          <span className="brand-mark__name">The Game<br />Library</span>
-        </Link>
-        <div className="rail-divider" />
-        <span className="rail-label">YOUR COLLECTION</span>
-        <nav className="shelf-nav" aria-label="Library navigation">
-          <Link className="shelf-nav__item" to="/">
-            <span className="shelf-nav__glyph"><LibraryIcon name="collection" /></span>
-            <span>All games</span>
-          </Link>
-        </nav>
-        <div className="rail-utility">
-          <span className="rail-label">GAME NIGHT</span>
-          <Link className="shelf-nav__item is-selected" to="/lets-play" aria-current="page">
-            <span className="shelf-nav__glyph"><LibraryIcon name="play" /></span>
-            <span>Let’s play</span>
-          </Link>
-          <Link className="shelf-nav__item" to="/logs">
-            <span className="shelf-nav__glyph"><LibraryIcon name="chronicle" /></span>
-            <span>Game logs</span>
-          </Link>
-          <Link className="shelf-nav__item" to="/wishlist">
-            <span className="shelf-nav__glyph"><LibraryIcon name="wishlist" /></span>
-            <span>Wishlist</span>
-          </Link>
-        </div>
-        <div className="rail-utility">
-          <span className="rail-label">REFERENCE</span>
-          <Link className="shelf-nav__item" to="/wiki">
-            <span className="shelf-nav__glyph"><LibraryIcon name="wiki" /></span>
-            <span>Game wiki</span>
-          </Link>
-          <Link className="shelf-nav__item" to="/ambience">
-            <span className="shelf-nav__glyph"><LibraryIcon name="ambience" /></span>
-            <span>Ambience</span>
-          </Link>
-        </div>
-        {import.meta.env.DEV && player.isAdmin && <DevelopmentUserMenu player={player} />}
-        <div className="rail-bottom">
-          <span className="rail-bottom__avatar">{player.fullName.slice(0, 1).toUpperCase()}</span>
-          <span className="rail-bottom__identity"><strong>{player.fullName}</strong><small>Keeper of the collection</small></span>
-          <button className="logout-button" onClick={onLogout} title="Sign out" aria-label="Sign out">↗</button>
-        </div>
-      </aside>
+      <LibraryRail player={player} onLogout={onLogout}>
+        <LibraryNavigation activePage="lets-play" />
+        
+      </LibraryRail>
 
       <main className="library-main ongoing-game-main">
-        <header className="library-topbar">
-          <div className="breadcrumbs"><span>GAME NIGHT</span><b>/</b><strong>IN PROGRESS</strong></div>
-          <ThemePicker />
-        </header>
+        <LibraryTopbar section="GAME NIGHT" page="IN PROGRESS" />
 
         <Link className="ongoing-game-back" to="/lets-play">← All game choices</Link>
-        {error && <div className="notice notice--error" role="alert">{error}</div>}
+        {error && (
+          <FeedbackMessage className="notice notice--error" message={error} onDismiss={() => setError("")} />
+        )}
         {loading && !ongoingGame ? (
           <p className="ongoing-game-loading">Rejoining the table…</p>
         ) : !ongoingGame ? (
           <section className="ongoing-game-missing">
-            <span className="eyebrow">TABLE NOT FOUND</span>
-            <h1>This game is no longer in progress.</h1>
-            <p>It may have been finished elsewhere.</p>
-            <Link className="button button--primary" to="/logs">Return to game logs</Link>
+            <Eyebrow>{loadFailed ? "UNABLE TO REJOIN" : "TABLE NOT FOUND"}</Eyebrow>
+            <h1>{loadFailed ? "Could not load this game." : "This game is no longer in progress."}</h1>
+            <p>{loadFailed ? "The table may be temporarily unavailable." : "It may have been finished elsewhere."}</p>
+            {loadFailed && (
+              <Button className="button button--primary" onClick={() => window.location.reload()} type="button">
+                Refresh page
+              </Button>
+            )}
+            <ButtonLink to="/logs" variant="primary">Return to game logs</ButtonLink>
           </section>
         ) : (
           <>
@@ -254,31 +226,31 @@ export function OngoingGame({ player, onLogout }: { player: AppPlayer; onLogout:
 
             <div className="ongoing-game-layout">
               <section className="ongoing-game-clock" aria-label="Game timer">
-                <span className="eyebrow">{ongoingGame.pausedAt ? "TIME PAUSED" : "TIME AT THE TABLE"}</span>
+                <Eyebrow>{ongoingGame.pausedAt ? "TIME PAUSED" : "TIME AT THE TABLE"}</Eyebrow>
                 <output className="ongoing-game-clock__time" aria-label={`Elapsed time ${formatElapsed(elapsedSeconds)}`}>
                   {formatElapsed(elapsedSeconds)}
                 </output>
                 <p>{ongoingGame.pausedAt ? "The clock will stay still until you resume." : "This timer keeps running if you leave the page."}</p>
                 <div className="ongoing-game-clock__actions">
                   {ongoingGame.pausedAt ? (
-                    <button className="button button--primary" disabled={clockAction !== null} onClick={() => void changeClock("resume")} type="button">
+                    <Button className="button button--primary" disabled={clockAction !== null} onClick={() => void changeClock("resume")} type="button">
                       {clockAction === "resume" ? "Saving…" : "Resume clock"}
-                    </button>
+                    </Button>
                   ) : (
-                    <button className="button button--quiet" disabled={clockAction !== null} onClick={() => void changeClock("pause")} type="button">
+                    <Button className="button button--quiet" disabled={clockAction !== null} onClick={() => void changeClock("pause")} type="button">
                       {clockAction === "pause" ? "Saving…" : "Pause clock"}
-                    </button>
+                    </Button>
                   )}
-                  <button className="button button--finish" disabled={clockAction !== null} onClick={() => void openFinishForm()} type="button">
+                  <Button className="button button--finish" disabled={clockAction !== null} onClick={() => void openFinishForm()} type="button">
                     Finish game
-                  </button>
+                  </Button>
                 </div>
                 {clockAction && clockAction !== "finish" && <span className="ongoing-game-clock__saved" role="status">Saving clock state…</span>}
               </section>
 
               <aside className="ongoing-game-details" aria-label="Game and player details">
                 {ongoingGame.game?.imageUrl && <img className="ongoing-game-details__image" src={ongoingGame.game.imageUrl} alt="" />}
-                <span className="eyebrow">AT THIS TABLE</span>
+                <Eyebrow>AT THIS TABLE</Eyebrow>
                 {ongoingGame.game && (
                   <>
                     <h2>{ongoingGame.game.name} ({ongoingGame.game.maker})</h2>
@@ -304,12 +276,19 @@ export function OngoingGame({ player, onLogout }: { player: AppPlayer; onLogout:
             <section className="ongoing-game-ambience" aria-labelledby="ongoing-game-ambience-title">
               <header className="ongoing-game-ambience__heading">
                 <div>
-                  <span className="eyebrow">MUSIC, MOTION & MOOD</span>
+                  <Eyebrow>MUSIC, MOTION & MOOD</Eyebrow>
                   <h2 id="ongoing-game-ambience-title">Set the scene</h2>
                 </div>
                 <Link className="ongoing-game-ambience__manage" to="/ambience">Manage atmospheres ↗</Link>
               </header>
-              {ambienceError && <p className="ongoing-game-ambience__error" role="alert">{ambienceError}</p>}
+              {ambienceError && (
+                <FeedbackMessage
+                  className="ongoing-game-ambience__error"
+                  message={ambienceError}
+                  onDismiss={() => setAmbienceError("")}
+                  onRetry={() => setAmbienceRetry((value) => value + 1)}
+                />
+              )}
               {ambienceLoading ? (
                 <p className="ongoing-game-ambience__empty">Finding a fitting atmosphere…</p>
               ) : ambienceSets.length > 0 ? (
@@ -373,7 +352,7 @@ export function OngoingGame({ player, onLogout }: { player: AppPlayer; onLogout:
       {confirmFinish && ongoingGame && (
         <div className="ongoing-game-confirm-backdrop">
           <form className="ongoing-game-confirm" onSubmit={(event) => void finishGame(event)} role="dialog" aria-modal="true" aria-labelledby="ongoing-game-confirm-title">
-            <span className="eyebrow">SAVE THIS SESSION</span>
+            <Eyebrow>SAVE THIS SESSION</Eyebrow>
             <h2 id="ongoing-game-confirm-title">How did the table finish?</h2>
             <p>The clock is paused while you enter results. Places are optional, ties are welcome, and placement points are 3 for first, 2 for second, and 1 for third.</p>
             {ongoingGame.gameNightId && <p className="ongoing-game-confirm__night">This log will count toward tonight’s game-night standings.</p>}
@@ -423,12 +402,18 @@ export function OngoingGame({ player, onLogout }: { player: AppPlayer; onLogout:
                 );
               })}
             </div>
-            {error && <p className="ongoing-game-confirm__error" role="alert">{error}</p>}
+            {error && (
+              <FeedbackMessage
+                className="ongoing-game-confirm__error"
+                message={error}
+                onDismiss={() => setError("")}
+              />
+            )}
             <div className="ongoing-game-confirm__actions">
-              <button className="button button--quiet" disabled={clockAction === "finish"} onClick={() => void cancelFinish()} type="button">Keep playing</button>
-              <button className="button button--finish" disabled={clockAction === "finish"} type="submit">
+              <Button className="button button--quiet" disabled={clockAction === "finish"} onClick={() => void cancelFinish()} type="button">Keep playing</Button>
+              <Button className="button button--finish" disabled={clockAction === "finish"} type="submit">
                 {clockAction === "finish" ? "Saving log…" : "Finish & save log"}
-              </button>
+              </Button>
             </div>
           </form>
         </div>

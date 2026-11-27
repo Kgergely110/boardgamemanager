@@ -1,3 +1,4 @@
+import { Eyebrow, FeedbackMessage, Panel } from "./ui";
 import { Activity, ChevronDown, Clock3, Sparkles } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useState } from "react";
@@ -7,6 +8,7 @@ interface CollectionPulseProps {
   data: CollectionPulseData | null;
   loading: boolean;
   error: string;
+  onDismiss: () => void;
   onRetry: () => void;
 }
 
@@ -17,12 +19,12 @@ function formattedDate(value: string): string {
   });
 }
 
-export function CollectionPulse({ data, loading, error, onRetry }: CollectionPulseProps) {
+export function CollectionPulse({ data, loading, error, onDismiss, onRetry }: CollectionPulseProps) {
   const [expanded, setExpanded] = useState(true);
   const maxTagCount = Math.max(1, ...(data?.popularTags.map((tag) => tag.gameCount) ?? []));
 
   return (
-    <section className="collection-pulse" aria-labelledby="collection-pulse-title">
+    <Panel as="section" className="collection-pulse" aria-labelledby="collection-pulse-title">
       <details
         className="collection-pulse__details"
         onToggle={(event) => setExpanded(event.currentTarget.open)}
@@ -30,7 +32,7 @@ export function CollectionPulse({ data, loading, error, onRetry }: CollectionPul
       >
         <summary className="collection-pulse__heading">
           <div>
-            <span className="eyebrow"><Activity aria-hidden="true" /> COLLECTION PULSE</span>
+            <Eyebrow><Activity aria-hidden="true" /> COLLECTION PULSE</Eyebrow>
             <h2 id="collection-pulse-title">A little life in the stacks</h2>
             <p>
               {data
@@ -47,21 +49,21 @@ export function CollectionPulse({ data, loading, error, onRetry }: CollectionPul
         ) : data ? (
           <div className="collection-pulse__body">
           <div className="collection-pulse__stats">
-            <article>
+            <Panel as="article">
               <span>Played in the last {data.windowDays} days</span>
               <strong>{data.playedRecently}</strong>
               <small>of {data.totalGames} collection titles</small>
-            </article>
-            <article>
+            </Panel>
+            <Panel as="article">
               <span>Never played</span>
               <strong>{data.neverPlayed}</strong>
               <small>{data.neverPlayed === 1 ? "title waiting for a first outing" : "titles waiting for a first outing"}</small>
-            </article>
-            <article>
+            </Panel>
+            <Panel as="article">
               <span>Resting 90+ days</span>
               <strong>{data.restingGameCount}</strong>
               <small>played before, but not recently</small>
-            </article>
+            </Panel>
           </div>
 
           <div className="collection-pulse__columns">
@@ -151,11 +153,13 @@ export function CollectionPulse({ data, loading, error, onRetry }: CollectionPul
       ) : null}
       </details>
       {error && (
-        <div className="collection-pulse__error" role="alert">
-          <span>{error}</span>
-          <button className="button button--quiet" onClick={onRetry} type="button">Try again</button>
-        </div>
+        <FeedbackMessage
+          className="collection-pulse__error"
+          message={error}
+          onDismiss={onDismiss}
+          onRetry={onRetry}
+        />
       )}
-    </section>
+    </Panel>
   );
 }

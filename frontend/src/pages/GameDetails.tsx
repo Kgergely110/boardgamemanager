@@ -1,9 +1,9 @@
+import { Button, ButtonLink, Eyebrow, FeedbackMessage } from "../components/ui";
+import { LibraryNavigation, LibraryRail, LibraryTopbar } from "../components/LibraryChrome";
 import { FormEvent, useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import { Link, useLocation, useParams } from "react-router-dom";
-import { DevelopmentUserMenu } from "../components/DevelopmentUserMenu";
-import { LibraryIcon, LibraryMark } from "../components/LibraryIcon";
-import { ThemePicker } from "../components/ThemePicker";
+import { LibraryIcon } from "../components/LibraryIcon";
 import { PlayLogCard } from "../components/PlayLogCard";
 import { api, getErrorMessage } from "../lib/api";
 import {
@@ -101,8 +101,10 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
   const [game, setGame] = useState<GameDetailsRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [loadFailed, setLoadFailed] = useState(false);
   const [retry, setRetry] = useState(0);
   const [availableTags, setAvailableTags] = useState<Tag[]>([]);
+  const [tagsLoadError, setTagsLoadError] = useState("");
   const [selectedTagId, setSelectedTagId] = useState("");
   const [newTagName, setNewTagName] = useState("");
   const [tagBusy, setTagBusy] = useState(false);
@@ -131,6 +133,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
   const [gameReviews, setGameReviews] = useState<GameReviews | null>(null);
   const [reviewsLoading, setReviewsLoading] = useState(true);
   const [reviewsError, setReviewsError] = useState("");
+  const [reviewsLoadError, setReviewsLoadError] = useState("");
   const [reviewsNotice, setReviewsNotice] = useState("");
   const [reviewsRevision, setReviewsRevision] = useState(0);
   const [ratingDraft, setRatingDraft] = useState<RatingDraft>(() => emptyRatingDraft());
@@ -155,12 +158,15 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
         updateScheduled = false;
         const atPageBottom = window.scrollY + window.innerHeight >= document.documentElement.scrollHeight - 2;
         const marker = window.innerHeight * 0.3;
-        let currentSection = sections[0];
+        const firstSection = sections[0];
+        if (!firstSection) return;
+        let currentSection = firstSection;
         for (const section of sections) {
           if (section.getBoundingClientRect().top > marker) break;
           currentSection = section;
         }
-        if (atPageBottom) currentSection = sections[sections.length - 1];
+        const lastSection = sections[sections.length - 1];
+        if (atPageBottom && lastSection) currentSection = lastSection;
         setActiveDossierSection((current) => current === currentSection.id ? current : currentSection.id);
       });
     };
@@ -186,6 +192,8 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
     let active = true;
     setLoading(true);
     setError("");
+    setLoadFailed(false);
+    setTagsLoadError("");
     setTagError("");
     setTagNotice("");
     setSelectedTagId("");
@@ -204,13 +212,17 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
       .then(({ data }) => {
         if (active) {
           setGame(data.data);
+          setLoadFailed(false);
           setDescriptionDraft(data.data.description ?? "");
           const firstRules = data.data.documents.find(isRulesDocument);
           setOpenDocumentIds(firstRules ? new Set([firstRules.id]) : new Set());
         }
       })
       .catch((requestError: unknown) => {
-        if (active) setError(getErrorMessage(requestError));
+        if (active) {
+          setError(getErrorMessage(requestError));
+          setLoadFailed(true);
+        }
       })
       .finally(() => {
         if (active) setLoading(false);
@@ -220,7 +232,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
         if (active) setAvailableTags(data.data);
       })
       .catch((requestError: unknown) => {
-        if (active) setTagError(getErrorMessage(requestError));
+        if (active) setTagsLoadError(getErrorMessage(requestError));
       });
     return () => { active = false; };
   }, [gameId, retry]);
@@ -255,6 +267,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
     setGameReviews(null);
     setReviewsLoading(true);
     setReviewsError("");
+    setReviewsLoadError("");
     setAwardDraft({ name: "", category: "", year: "" });
     if (!gameId) {
       setReviewsLoading(false);
@@ -268,7 +281,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
         setRatingDraft(emptyRatingDraft(data.data.myRating));
       })
       .catch((requestError: unknown) => {
-        if (active) setReviewsError(getErrorMessage(requestError));
+        if (active) setReviewsLoadError(getErrorMessage(requestError));
       })
       .finally(() => {
         if (active) setReviewsLoading(false);
@@ -570,7 +583,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
           </label>
         </div>
         <div className="dossier-document-preview">
-          <span className="eyebrow">LIVE PREVIEW</span>
+          <Eyebrow>LIVE PREVIEW</Eyebrow>
           <div className="markdown-copy">
             {documentContentDraft.trim()
               ? <ReactMarkdown>{documentContentDraft}</ReactMarkdown>
@@ -580,12 +593,12 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
         <div className="dossier-document-editor__footer">
           <span>{documentContentDraft.length.toLocaleString()} / 100,000 characters</span>
           <div>
-            <button className="button button--quiet" disabled={documentBusy} onClick={closeDocumentEditor} type="button">
+            <Button className="button button--quiet" disabled={documentBusy} onClick={closeDocumentEditor} type="button">
               Cancel
-            </button>
-            <button className="button button--primary" disabled={documentBusy} type="submit">
+            </Button>
+            <Button className="button button--primary" disabled={documentBusy} type="submit">
               {documentBusy ? "Saving…" : documentEditor?.mode === "new" ? "Add document" : "Save document"}
-            </button>
+            </Button>
           </div>
         </div>
       </form>
@@ -594,62 +607,34 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
 
   return (
     <div className="library-shell game-dossier-shell">
-      <aside className="library-rail">
-        <Link className="brand-mark" to="/" aria-label="Board Game Library home">
-          <LibraryMark className="brand-mark__symbol" />
-          <span className="brand-mark__name">The Game<br />Library</span>
-        </Link>
-        <div className="rail-divider" />
-        <span className="rail-label">YOUR COLLECTION</span>
-        <Link className="shelf-nav__item dossier-rail-link" to={backTo}>
-          <span className="shelf-nav__glyph"><LibraryIcon name="collection" /></span>
-          <span>Back to the stacks</span>
-        </Link>
-        <Link className="shelf-nav__item dossier-rail-link" to="/lets-play">
-          <span className="shelf-nav__glyph"><LibraryIcon name="play" /></span>
-          <span>Let’s play</span>
-        </Link>
-        <Link className="shelf-nav__item dossier-rail-link" to="/logs">
-          <span className="shelf-nav__glyph"><LibraryIcon name="chronicle" /></span>
-          <span>Game logs</span>
-        </Link>
-        <Link className="shelf-nav__item dossier-rail-link" to="/wishlist">
-          <span className="shelf-nav__glyph"><LibraryIcon name="wishlist" /></span>
-          <span>Wishlist</span>
-        </Link>
-        <Link className="shelf-nav__item dossier-rail-link" to="/wiki">
-          <span className="shelf-nav__glyph"><LibraryIcon name="wiki" /></span>
-          <span>Game wiki</span>
-        </Link>
-        <Link className="shelf-nav__item dossier-rail-link" to="/ambience">
-          <span className="shelf-nav__glyph"><LibraryIcon name="ambience" /></span>
-          <span>Ambience</span>
-        </Link>
-        {import.meta.env.DEV && player.isAdmin && <DevelopmentUserMenu player={player} />}
-        <div className="rail-bottom">
-          <span className="rail-bottom__avatar">{player.fullName.slice(0, 1).toUpperCase()}</span>
-          <span className="rail-bottom__identity">
-            <strong>{player.fullName}</strong>
-            <small>Keeper of the collection</small>
-          </span>
-          <button className="logout-button" onClick={onLogout} title="Sign out" aria-label="Sign out">↗</button>
-        </div>
-      </aside>
+      <LibraryRail player={player} onLogout={onLogout}>
+        <LibraryNavigation backTo={backTo} />
+        
+      </LibraryRail>
 
       <main className="library-main dossier-main">
-        <header className="library-topbar">
-          <div className="breadcrumbs"><span>COLLECTION</span><b>/</b><strong>GAME DOSSIER</strong></div>
-          <ThemePicker />
-        </header>
+        <LibraryTopbar section="COLLECTION" page="GAME DOSSIER" />
 
         {loading ? (
           <div className="empty-state dossier-loading" role="status" aria-live="polite"><p>Opening the game dossier…</p></div>
-        ) : error || !game ? (
+        ) : error || loadFailed || !game ? (
           <div className="empty-state dossier-loading" role="alert">
             <LibraryIcon name="collection" className="empty-state__ornament" />
-            <h1>The page is missing from the stacks.</h1>
-            <p>{error || "This game could not be found."}</p>
-            <button className="button button--primary" onClick={() => setRetry((value) => value + 1)}>Try again</button>
+            <h1>{loadFailed ? "The dossier is unavailable." : "The page is missing from the stacks."}</h1>
+            {error ? (
+              <FeedbackMessage
+                message={error}
+                onDismiss={() => setError("")}
+                onRetry={() => setRetry((value) => value + 1)}
+              />
+            ) : (
+              <p>{loadFailed ? "The game information is still unavailable." : "This game could not be found."}</p>
+            )}
+            {loadFailed && (
+              <Button className="button button--primary" onClick={() => setRetry((value) => value + 1)} type="button">
+                Refresh dossier
+              </Button>
+            )}
           </div>
         ) : (
           <>
@@ -661,7 +646,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                   : <div className="dossier-cover__placeholder"><span>THE GAME LIBRARY</span><strong>{game.name}</strong><LibraryIcon name="play" className="dossier-cover__symbol" /> </div>}
               </div>
               <div className="dossier-hero__copy">
-                <span className="eyebrow">GAME DOSSIER · {game.releaseYear ?? "YEAR UNKNOWN"}</span>
+                <Eyebrow>GAME DOSSIER · {game.releaseYear ?? "YEAR UNKNOWN"}</Eyebrow>
                 <h1>{game.name}</h1>
                 <p className="dossier-maker">{game.maker}</p>
                 <p className="dossier-location">
@@ -688,7 +673,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
 
             <section className="dossier-section" id="overview">
               <div className="dossier-section__heading">
-                <span className="eyebrow">AT A GLANCE</span>
+                <Eyebrow>AT A GLANCE</Eyebrow>
                 <h2>On the table</h2>
               </div>
               <dl className="dossier-facts">
@@ -700,13 +685,13 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
               <div className="dossier-story">
                 <div className="dossier-story__heading">
                   <div>
-                    <span className="eyebrow">THE STORY SO FAR</span>
+                    <Eyebrow>THE STORY SO FAR</Eyebrow>
                     <h3>About this game</h3>
                   </div>
                   {!descriptionEditing && (
-                    <button className="button button--quiet" onClick={() => setDescriptionEditing(true)} type="button">
+                    <Button className="button button--quiet" onClick={() => setDescriptionEditing(true)} type="button">
                       Edit description
-                    </button>
+                    </Button>
                   )}
                 </div>
                 {descriptionEditing ? (
@@ -723,7 +708,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                     <div className="dossier-description-form__footer">
                       <span>{descriptionDraft.length}/500</span>
                       <div>
-                        <button
+                        <Button
                           className="button button--quiet"
                           disabled={descriptionSaving}
                           onClick={() => {
@@ -734,24 +719,28 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                           type="button"
                         >
                           Cancel
-                        </button>
-                        <button className="button button--primary" disabled={descriptionSaving} type="submit">
+                        </Button>
+                        <Button className="button button--primary" disabled={descriptionSaving} type="submit">
                           {descriptionSaving ? "Saving…" : "Save description"}
-                        </button>
+                        </Button>
                       </div>
                     </div>
                   </form>
                 ) : (
                   <p>{game.description || "A beloved part of the collection, waiting for its story to be written."}</p>
                 )}
-                {descriptionError && <p className="dossier-tag-message dossier-tag-message--error" role="alert">{descriptionError}</p>}
-                {descriptionNotice && <p className="dossier-tag-message" role="status">{descriptionNotice}</p>}
+                {descriptionError && (
+                  <FeedbackMessage className="dossier-tag-message dossier-tag-message--error" message={descriptionError} onDismiss={() => setDescriptionError("")} />
+                )}
+                {descriptionNotice && (
+                  <FeedbackMessage className="dossier-tag-message" message={descriptionNotice} onDismiss={() => setDescriptionNotice("")} tone="success" />
+                )}
               </div>
             </section>
 
             <section className="dossier-section game-feedback" id="ratings-awards">
               <div className="dossier-section__heading">
-                <span className="eyebrow">THE TABLE’S VERDICT</span>
+                <Eyebrow>THE TABLE’S VERDICT</Eyebrow>
                 <h2>Ratings &amp; awards</h2>
                 {gameReviews && (
                   <span className="game-feedback__rating-count">
@@ -759,15 +748,27 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                   </span>
                 )}
               </div>
-              {reviewsError && <p className="dossier-tag-message dossier-tag-message--error" role="alert">{reviewsError}</p>}
-              {reviewsNotice && <p className="dossier-tag-message" role="status">{reviewsNotice}</p>}
+              {reviewsError && (
+                <FeedbackMessage className="dossier-tag-message dossier-tag-message--error" message={reviewsError} onDismiss={() => setReviewsError("")} />
+              )}
+              {reviewsLoadError && (
+                <FeedbackMessage
+                  className="dossier-tag-message dossier-tag-message--error"
+                  message={reviewsLoadError}
+                  onDismiss={() => setReviewsLoadError("")}
+                  onRetry={() => setReviewsRevision((value) => value + 1)}
+                />
+              )}
+              {reviewsNotice && (
+                <FeedbackMessage className="dossier-tag-message" message={reviewsNotice} onDismiss={() => setReviewsNotice("")} tone="success" />
+              )}
               {reviewsLoading ? (
                 <div className="dossier-coming" role="status"><p>Gathering the table’s impressions…</p></div>
               ) : gameReviews ? (
                 <>
                   <div className="game-feedback__overview">
                     <article className="game-feedback__score">
-                      <span className="eyebrow">COMMUNITY SCORE</span>
+                      <Eyebrow>COMMUNITY SCORE</Eyebrow>
                       <strong>{gameReviews.overallAverage?.toFixed(1) ?? "—"}<small> / 5</small></strong>
                       <span className="game-feedback__stars" aria-label={
                         gameReviews.overallAverage === null
@@ -803,7 +804,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                     <section className="game-rating-form">
                       <div className="game-feedback__subheading">
                         <div>
-                          <span className="eyebrow">YOUR IMPRESSION</span>
+                          <Eyebrow>YOUR IMPRESSION</Eyebrow>
                           <h3>{gameReviews.myRating ? "Update your rating" : "Rate this game"}</h3>
                         </div>
                       </div>
@@ -812,7 +813,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                           <legend>Overall rating <span className="required-mark" aria-hidden="true">*</span></legend>
                           <div className="game-rating-form__stars" role="group" aria-label="Overall rating from one to five stars">
                             {[1, 2, 3, 4, 5].map((value) => (
-                              <button
+                              <Button
                                 aria-label={`${value} out of 5 stars`}
                                 aria-pressed={ratingDraft.overall === value}
                                 className={value <= ratingDraft.overall ? "is-selected" : ""}
@@ -822,7 +823,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                                 type="button"
                               >
                                 ★
-                              </button>
+                              </Button>
                             ))}
                             <span>{ratingDraft.overall ? `${ratingDraft.overall} / 5` : "Choose a score"}</span>
                           </div>
@@ -858,20 +859,20 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                         </label>
                         <div className="game-rating-form__footer">
                           {gameReviews.myRating && (
-                            <button className="button button--quiet" disabled={ratingBusy} onClick={() => void deleteRating()} type="button">
+                            <Button className="button button--quiet" disabled={ratingBusy} onClick={() => void deleteRating()} type="button">
                               Remove my rating
-                            </button>
+                            </Button>
                           )}
-                          <button className="button button--primary" disabled={ratingBusy || ratingDraft.overall === 0} type="submit">
+                          <Button className="button button--primary" disabled={ratingBusy || ratingDraft.overall === 0} type="submit">
                             {ratingBusy ? "Saving…" : gameReviews.myRating ? "Update rating" : "Save rating"}
-                          </button>
+                          </Button>
                         </div>
                       </form>
                     </section>
 
                     <section className="game-awards">
                       <div className="game-feedback__subheading">
-                        <div><span className="eyebrow">HONOURS</span><h3>Awards won</h3></div>
+                        <div><Eyebrow>HONOURS</Eyebrow><h3>Awards won</h3></div>
                       </div>
                       {gameReviews.awards.length ? (
                         <ul className="game-awards__list">
@@ -884,14 +885,14 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                                   <small>{[award.category, award.year].filter(Boolean).join(" · ")}</small>
                                 )}
                               </span>
-                              <button
+                              <Button
                                 aria-label={`Remove ${award.name} award`}
                                 disabled={awardBusyId !== ""}
                                 onClick={() => void deleteAward(award)}
                                 type="button"
                               >
                                 {awardBusyId === award.id ? "…" : "×"}
-                              </button>
+                              </Button>
                             </li>
                           ))}
                         </ul>
@@ -931,16 +932,16 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                             />
                           </label>
                         </div>
-                        <button className="button button--quiet" disabled={awardSaving} type="submit">
+                        <Button className="button button--quiet" disabled={awardSaving} type="submit">
                           {awardSaving ? "Adding…" : "＋ Add award"}
-                        </button>
+                        </Button>
                       </form>
                     </section>
                   </div>
 
                   <section className="game-feedback__reviews">
                     <div className="game-feedback__subheading">
-                      <div><span className="eyebrow">AROUND THE TABLE</span><h3>Player ratings</h3></div>
+                      <div><Eyebrow>AROUND THE TABLE</Eyebrow><h3>Player ratings</h3></div>
                     </div>
                     {gameReviews.ratings.length ? (
                       <div className="game-feedback__review-list">
@@ -978,7 +979,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
 
             <section className="dossier-section" id="tags">
               <div className="dossier-section__heading">
-                <span className="eyebrow">CLASSIFICATION</span>
+                <Eyebrow>CLASSIFICATION</Eyebrow>
                 <h2>Tags &amp; categories</h2>
               </div>
               <div className="dossier-tag-list" aria-label="Assigned tags">
@@ -989,14 +990,14 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                     style={tagStyle(tag.name)}
                   >
                     #{tag.name}
-                    <button
+                    <Button
                       aria-label={`Remove ${tag.name} from ${game.name}`}
                       disabled={tagBusy}
                       onClick={() => removeTag(tag.id)}
                       type="button"
                     >
                       ×
-                    </button>
+                    </Button>
                   </span>
                 ))}
                 {game.tags.length === 0 && <p className="dossier-tag-empty">No tags have been added to this game yet.</p>}
@@ -1018,9 +1019,9 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                           .map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
                       </select>
                     </label>
-                    <button className="button button--quiet" disabled={tagBusy || !selectedTagId} type="submit">
+                    <Button className="button button--quiet" disabled={tagBusy || !selectedTagId} type="submit">
                       Add tag
-                    </button>
+                    </Button>
                   </form>
                 )}
                 <form className="dossier-tag-form" onSubmit={createTag}>
@@ -1034,27 +1035,39 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                     />
                     <small>The # is added when displayed; enter the name without it.</small>
                   </label>
-                  <button className="button button--primary" disabled={tagBusy || !newTagName.trim()} type="submit">
+                  <Button className="button button--primary" disabled={tagBusy || !newTagName.trim()} type="submit">
                     Create &amp; add
-                  </button>
+                  </Button>
                 </form>
               </div>
-              {tagError && <p className="dossier-tag-message dossier-tag-message--error" role="alert">{tagError}</p>}
-              {tagNotice && <p className="dossier-tag-message" role="status">{tagNotice}</p>}
+              {tagError && (
+                <FeedbackMessage className="dossier-tag-message dossier-tag-message--error" message={tagError} onDismiss={() => setTagError("")} />
+              )}
+              {tagsLoadError && (
+                <FeedbackMessage
+                  className="dossier-tag-message dossier-tag-message--error"
+                  message={tagsLoadError}
+                  onDismiss={() => setTagsLoadError("")}
+                  onRetry={() => setRetry((value) => value + 1)}
+                />
+              )}
+              {tagNotice && (
+                <FeedbackMessage className="dossier-tag-message" message={tagNotice} onDismiss={() => setTagNotice("")} tone="success" />
+              )}
             </section>
 
             <section className="dossier-section" id="documents">
               <div className="dossier-section__heading">
-                <span className="eyebrow">THE ARCHIVE</span>
+                <Eyebrow>THE ARCHIVE</Eyebrow>
                 <h2>Rules &amp; documents</h2>
-                <button
+                <Button
                   className="button button--quiet"
                   disabled={documentEditor !== null || documentBusy}
                   onClick={() => openNewDocument()}
                   type="button"
                 >
                   ＋ Add document
-                </button>
+                </Button>
               </div>
               {documentEditor?.mode === "new" && renderDocumentEditor(false)}
               {game.documents.map((document) => {
@@ -1065,7 +1078,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                 return (
                   <article className="dossier-document" key={document.id}>
                     <div className="dossier-document__heading">
-                      <button
+                      <Button
                         aria-controls={`document-content-${document.id}`}
                         aria-expanded={isOpen}
                         className="dossier-document__toggle"
@@ -1073,23 +1086,23 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                         type="button"
                       >
                         <span className="dossier-document__title">
-                          <span className="eyebrow">{isRules ? "REQUIRED RULES" : "GAME DOCUMENT"}</span>
+                          <Eyebrow>{isRules ? "REQUIRED RULES" : "GAME DOCUMENT"}</Eyebrow>
                           <strong>{document.title}</strong>
                         </span>
                         <span className="dossier-document__chevron" aria-hidden="true">{isOpen ? "−" : "+"}</span>
-                      </button>
+                      </Button>
                       {!isEditing && (
                         <div className="dossier-document__actions">
-                          <button
+                          <Button
                             className="button button--quiet"
                             disabled={documentEditor !== null || documentBusy}
                             onClick={() => openDocumentEditor(document)}
                             type="button"
                           >
                             Edit
-                          </button>
+                          </Button>
                           {!isRules && (
-                            <button
+                            <Button
                               className="button button--quiet dossier-document__remove"
                               disabled={documentEditor !== null || documentBusy}
                               onClick={() => {
@@ -1099,7 +1112,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                               type="button"
                             >
                               Remove
-                            </button>
+                            </Button>
                           )}
                         </div>
                       )}
@@ -1121,22 +1134,22 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                           {pendingDocumentDelete?.id === document.id && (
                             <div className="dossier-document-confirm" role="group" aria-label={`Confirm removal of ${document.title}`}>
                               <p>Remove “{document.title}” from this game?</p>
-                              <button
+                              <Button
                                 className="button button--quiet"
                                 disabled={documentBusy}
                                 onClick={() => setPendingDocumentDelete(null)}
                                 type="button"
                               >
                                 Keep document
-                              </button>
-                              <button
+                              </Button>
+                              <Button
                                 className="button dossier-document__remove"
                                 disabled={documentBusy}
                                 onClick={deleteDocument}
                                 type="button"
                               >
                                 Remove document
-                              </button>
+                              </Button>
                             </div>
                           )}
                         </>
@@ -1149,35 +1162,40 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                 <div className="dossier-coming">
                   <LibraryIcon name="wiki" />
                   <p>This game does not have a Rules document yet.</p>
-                  <button
+                  <Button
                     className="button button--quiet"
                     disabled={documentEditor !== null || documentBusy}
                     onClick={() => openNewDocument("Rules")}
                     type="button"
                   >
                     Add required Rules
-                  </button>
+                  </Button>
                 </div>
               )}
-              {documentError && <p className="dossier-tag-message dossier-tag-message--error" role="alert">{documentError}</p>}
-              {documentNotice && <p className="dossier-tag-message" role="status">{documentNotice}</p>}
+              {documentError && (
+                <FeedbackMessage className="dossier-tag-message dossier-tag-message--error" message={documentError} onDismiss={() => setDocumentError("")} />
+              )}
+              {documentNotice && (
+                <FeedbackMessage className="dossier-tag-message" message={documentNotice} onDismiss={() => setDocumentNotice("")} tone="success" />
+              )}
             </section>
 
             <section className="dossier-section" id="play-history">
               <div className="dossier-section__heading">
-                <span className="eyebrow">TALES FROM THE TABLE</span>
+                <Eyebrow>TALES FROM THE TABLE</Eyebrow>
                 <h2>Play history</h2>
-                <Link className="button button--primary" to={`/logs?gameId=${game.id}`}>
+                <ButtonLink to={`/logs?gameId=${game.id}`} variant="primary">
                   Record a session
-                </Link>
+                </ButtonLink>
               </div>
               {playLogsError && (
-                <p className="dossier-tag-message dossier-tag-message--error" role="alert">
-                  {playLogsError}
-                  <button className="button button--quiet" onClick={() => setPlayLogsRevision((value) => value + 1)} type="button">
-                    Retry
-                  </button>
-                </p>
+                <FeedbackMessage
+                  className="dossier-tag-message dossier-tag-message--error"
+                  message={playLogsError}
+                  onDismiss={() => setPlayLogsError("")}
+                  onRetry={() => setPlayLogsRevision((value) => value + 1)}
+                  retryLabel="Retry"
+                />
               )}
               {playLogsLoading && playLogs.length === 0 ? (
                 <div className="dossier-coming" role="status"><p>Opening the table chronicle…</p></div>
@@ -1189,28 +1207,28 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                 <div className="dossier-coming">
                   <LibraryIcon name="chronicle" />
                   <p>No sessions have been recorded for this game yet.</p>
-                  <Link className="button button--quiet" to={`/logs?gameId=${game.id}`}>Record the first session</Link>
+                  <ButtonLink to={`/logs?gameId=${game.id}`} variant="quiet">Record the first session</ButtonLink>
                 </div>
               )}
               {playLogsTotal > 100 && (
                 <nav className="play-log-pagination" aria-label="Game play history pages">
-                  <button
+                  <Button
                     className="button button--quiet"
                     disabled={playLogsPage <= 1 || playLogsLoading}
                     onClick={() => setPlayLogsPage((value) => Math.max(1, value - 1))}
                     type="button"
                   >
                     ← Newer
-                  </button>
+                  </Button>
                   <span>{playLogsTotal.toLocaleString()} sessions <i>·</i> Page {playLogsPage} of {playLogsTotalPages}</span>
-                  <button
+                  <Button
                     className="button button--quiet"
                     disabled={playLogsPage >= playLogsTotalPages || playLogsLoading}
                     onClick={() => setPlayLogsPage((value) => Math.min(playLogsTotalPages, value + 1))}
                     type="button"
                   >
                     Older →
-                  </button>
+                  </Button>
                 </nav>
               )}
             </section>

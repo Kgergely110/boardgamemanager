@@ -1,3 +1,4 @@
+import { Button, Eyebrow, FeedbackMessage, Panel } from "./ui";
 import { Crown } from "lucide-react";
 import { useEffect, useState } from "react";
 import { api, getErrorMessage } from "../lib/api";
@@ -16,7 +17,8 @@ function nightDate(value: string): string {
 
 function GameNightBoard({ items, metric }: { items: GameNightStanding[]; metric: NightBoardMetric }) {
   const scoreOf = (item: GameNightStanding) => item[metric];
-  const leaderScore = items.length ? scoreOf(items[0]) : 0;
+  const firstItem = items[0];
+  const leaderScore = firstItem ? scoreOf(firstItem) : 0;
   const leadersCount = items.filter((item) => scoreOf(item) === leaderScore && leaderScore > 0).length;
   let previousScore = -1;
   let rank = 0;
@@ -25,7 +27,7 @@ function GameNightBoard({ items, metric }: { items: GameNightStanding[]; metric:
     <section className={`game-night-board game-night-board--${metric}`} aria-label={metric === "wins" ? "Most wins standings" : "Placement points standings"}>
       <header className="game-night-board__heading">
         <div>
-          <span className="eyebrow">{metric === "wins" ? "FIRST-PLACE FINISHES" : "3 · 2 · 1 SCORING"}</span>
+          <Eyebrow>{metric === "wins" ? "FIRST-PLACE FINISHES" : "3 · 2 · 1 SCORING"}</Eyebrow>
           <h3>{metric === "wins" ? "Most wins" : "Placement points"}</h3>
         </div>
         <span>{metric === "wins" ? "wins" : "points"}</span>
@@ -75,6 +77,7 @@ export function GameNightPanel({ onActiveNightChange }: { onActiveNightChange: (
   const [saving, setSaving] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
   const [error, setError] = useState("");
+  const [loadError, setLoadError] = useState("");
   const [revision, setRevision] = useState(0);
   const [recap, setRecap] = useState<GameNight | null>(null);
   const [recapLoading, setRecapLoading] = useState(false);
@@ -84,7 +87,7 @@ export function GameNightPanel({ onActiveNightChange }: { onActiveNightChange: (
     let active = true;
     async function loadNights() {
       setLoading(true);
-      setError("");
+      setLoadError("");
       try {
         const { data } = await api.get<{ data: GameNight[] }>("/game-nights");
         if (active) {
@@ -99,7 +102,7 @@ export function GameNightPanel({ onActiveNightChange }: { onActiveNightChange: (
         }
       } catch (requestError) {
         if (active) {
-          setError(getErrorMessage(requestError));
+          setLoadError(getErrorMessage(requestError));
           if (revision === 0) onActiveNightChange(null);
         }
       } finally {
@@ -118,13 +121,14 @@ export function GameNightPanel({ onActiveNightChange }: { onActiveNightChange: (
     setRecap(null);
     if (!selectedNight?.endedAt) return () => { active = false; };
 
+    setLoadError("");
     setRecapLoading(true);
     api.get<{ data: GameNight }>(`/game-nights/${selectedNight.id}`)
       .then(({ data }) => {
         if (active) setRecap(data.data);
       })
       .catch((requestError: unknown) => {
-        if (active) setError(getErrorMessage(requestError));
+        if (active) setLoadError(getErrorMessage(requestError));
       })
       .finally(() => {
         if (active) setRecapLoading(false);
@@ -166,10 +170,10 @@ export function GameNightPanel({ onActiveNightChange }: { onActiveNightChange: (
   }
 
   return (
-    <section className="game-night-panel" aria-labelledby="game-night-panel-title">
+    <Panel as="section" className="game-night-panel" aria-labelledby="game-night-panel-title">
       <header className="game-night-panel__heading">
         <div>
-          <span className="eyebrow">THE EVENING’S SCOREBOOK</span>
+          <Eyebrow>THE EVENING’S SCOREBOOK</Eyebrow>
           <h2 id="game-night-panel-title">Game night</h2>
           <p>{activeNight ? "Games started from this page will join tonight’s standings." : "Group several games together and see who leads the night."}</p>
         </div>
@@ -177,25 +181,45 @@ export function GameNightPanel({ onActiveNightChange }: { onActiveNightChange: (
           confirmClose ? (
             <div className="game-night-panel__confirm">
               <span>Close this game night?</span>
-              <button className="button button--quiet" disabled={saving} onClick={() => setConfirmClose(false)} type="button">Keep open</button>
-              <button className="button button--primary" disabled={saving || activeNight.ongoingGameCount > 0} onClick={() => void closeNight()} type="button">
+              <Button className="button button--quiet" disabled={saving} onClick={() => setConfirmClose(false)} type="button">Keep open</Button>
+              <Button className="button button--primary" disabled={saving || activeNight.ongoingGameCount > 0} onClick={() => void closeNight()} type="button">
                 {saving ? "Closing…" : "Close night"}
-              </button>
+              </Button>
             </div>
           ) : (
-            <button className="button button--quiet" disabled={saving || activeNight.ongoingGameCount > 0} onClick={() => setConfirmClose(true)} type="button">
+            <Button className="button button--quiet" disabled={saving || activeNight.ongoingGameCount > 0} onClick={() => setConfirmClose(true)} type="button">
               {activeNight.ongoingGameCount > 0 ? "Finish active games first" : "Close game night"}
-            </button>
+            </Button>
           )
         ) : (
-          <button className="button button--primary" disabled={loading || saving} onClick={() => void startNight()} type="button">
+          <Button className="button button--primary" disabled={loading || saving} onClick={() => void startNight()} type="button">
             {saving ? "Starting…" : "Start a game night"}
-          </button>
+          </Button>
         )}
       </header>
 
-      {error && <p className="game-night-panel__error" role="alert">{error}</p>}
-      {certificateError && <p className="game-night-panel__error" role="alert">{certificateError}</p>}
+      {error && (
+        <FeedbackMessage
+          className="game-night-panel__error"
+          message={error}
+          onDismiss={() => setError("")}
+        />
+      )}
+      {loadError && (
+        <FeedbackMessage
+          className="game-night-panel__error"
+          message={loadError}
+          onDismiss={() => setLoadError("")}
+          onRetry={() => setRevision((value) => value + 1)}
+        />
+      )}
+      {certificateError && (
+        <FeedbackMessage
+          className="game-night-panel__error"
+          message={certificateError}
+          onDismiss={() => setCertificateError("")}
+        />
+      )}
       {loading && nights.length === 0 ? (
         <p className="game-night-panel__empty">Opening the scorebook…</p>
       ) : selectedNight ? (
@@ -218,7 +242,7 @@ export function GameNightPanel({ onActiveNightChange }: { onActiveNightChange: (
             <section className="game-night-recap" aria-labelledby="game-night-recap-title">
               <header className="game-night-recap__heading">
                 <div>
-                  <span className="eyebrow">THE EVENING’S CHRONICLE</span>
+                  <Eyebrow>THE EVENING’S CHRONICLE</Eyebrow>
                   <h3 id="game-night-recap-title">Game night recap</h3>
                 </div>
                 {recap?.games?.length ? <span>{recap.games.length} {recap.games.length === 1 ? "game" : "games"} played</span> : null}
@@ -248,7 +272,7 @@ export function GameNightPanel({ onActiveNightChange }: { onActiveNightChange: (
                   <div className="game-night-recap__certificates">
                     <p>{winners.length > 1 ? "A shared crown deserves a certificate for each champion." : "Honor the night’s most victorious player."}</p>
                     {winners.map((winner, index) => (
-                      <button
+                      <Button
                         className="button button--primary"
                         key={`${winner.playerId ?? winner.name}-${index}`}
                         onClick={async () => {
@@ -268,7 +292,7 @@ export function GameNightPanel({ onActiveNightChange }: { onActiveNightChange: (
                       >
                         <Crown aria-hidden="true" size={15} />
                         Download {winner.name}’s certificate
-                      </button>
+                      </Button>
                     ))}
                   </div>
                 ) : (
@@ -287,14 +311,14 @@ export function GameNightPanel({ onActiveNightChange }: { onActiveNightChange: (
           <summary>Recent game nights</summary>
           <div>
             {nights.filter((night) => night.id !== selectedNight?.id).map((night) => (
-              <button key={night.id} onClick={() => setSelectedNightId(night.id)} type="button">
+              <Button key={night.id} onClick={() => setSelectedNightId(night.id)} type="button">
                 <span>{nightDate(night.startedAt)}</span>
                 <small>{night.gameCount} {night.gameCount === 1 ? "game" : "games"}</small>
-              </button>
+              </Button>
             ))}
           </div>
         </details>
       )}
-    </section>
+    </Panel>
   );
 }

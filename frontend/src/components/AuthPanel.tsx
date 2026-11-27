@@ -1,3 +1,4 @@
+import { Button, Eyebrow, FeedbackMessage, Field } from "./ui";
 import { FormEvent, useState } from "react";
 import { LibraryMark } from "./LibraryIcon";
 import { api, getErrorMessage } from "../lib/api";
@@ -49,7 +50,7 @@ export function AuthPanel({ setupRequired, onAuthenticated }: AuthPanelProps) {
       </div>
 
       <section className="entry-card">
-        <span className="eyebrow">THE BOARD GAME LIBRARY</span>
+        <Eyebrow>THE BOARD GAME LIBRARY</Eyebrow>
         <h1>{setupRequired ? "Make this place yours." : "Welcome back."}</h1>
         <p className="entry-copy">
           {setupRequired
@@ -59,8 +60,7 @@ export function AuthPanel({ setupRequired, onAuthenticated }: AuthPanelProps) {
 
         <form className="entry-form" onSubmit={handleSubmit}>
           {setupRequired && (
-            <label>
-              <span className="field-label">Your name</span>
+            <Field label="Your name">
               <input
                 autoComplete="name"
                 maxLength={80}
@@ -68,10 +68,9 @@ export function AuthPanel({ setupRequired, onAuthenticated }: AuthPanelProps) {
                 required
                 value={fullName}
               />
-            </label>
+            </Field>
           )}
-          <label>
-            <span className="field-label">Username</span>
+          <Field label="Username">
             <input
               autoComplete="username"
               maxLength={32}
@@ -81,9 +80,8 @@ export function AuthPanel({ setupRequired, onAuthenticated }: AuthPanelProps) {
               required
               value={username}
             />
-          </label>
-          <label>
-            <span className="field-label">Password</span>
+          </Field>
+          <Field label="Password" hint={setupRequired ? "Use at least 8 characters." : undefined}>
             <input
               autoComplete={setupRequired ? "new-password" : "current-password"}
               maxLength={128}
@@ -93,18 +91,17 @@ export function AuthPanel({ setupRequired, onAuthenticated }: AuthPanelProps) {
               type="password"
               value={password}
             />
-            {setupRequired && (
-              <span className="field-note">Use at least 8 characters.</span>
-            )}
-          </label>
-          {error && <p className="form-error" role="alert">{error}</p>}
-          <button className="button button--primary button--wide" disabled={submitting}>
+          </Field>
+          {error && (
+            <FeedbackMessage className="form-error" message={error} onDismiss={() => setError("")} />
+          )}
+          <Button className="button--wide" disabled={submitting} variant="primary">
             {submitting
               ? "Unlocking..."
               : setupRequired
                 ? "Open the library"
                 : "Enter the library"}
-          </button>
+          </Button>
         </form>
 
         <div className="entry-footnote">
