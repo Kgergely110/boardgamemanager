@@ -7,6 +7,7 @@ import { PlayLogCard } from "../components/PlayLogCard";
 import { OngoingGamesList } from "../components/OngoingGamesList";
 import { PlayLogChart, PlayLogLeaderboard } from "../components/PlayLogInsights";
 import { api, getErrorMessage } from "../lib/api";
+import { createLocalId } from "../lib/localId";
 import { Game, PlayLog, PlayLogStatistics, Player as AppPlayer, Tag } from "../types";
 
 interface PlayLogPageResponse {
@@ -91,7 +92,7 @@ function localDateTime(value = new Date()): string {
 }
 
 function emptyParticipant(): ParticipantDraft {
-  return { key: crypto.randomUUID(), kind: "guest", playerId: "", name: "", placement: "", score: "" };
+  return { key: createLocalId(), kind: "guest", playerId: "", name: "", placement: "", score: "" };
 }
 
 function emptyLogDraft(gameId = ""): LogDraft {
@@ -230,7 +231,7 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
       location: log.location ?? "",
       notes: log.notes ?? "",
       participants: log.participants.map((participant) => ({
-        key: crypto.randomUUID(),
+        key: createLocalId(),
         kind: participant.playerId ? "account" : "guest",
         playerId: participant.playerId ?? "",
         name: participant.playerId ? "" : participant.displayName,
@@ -357,7 +358,7 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
       </LibraryRail>
 
       <main className="library-main play-log-main">
-        <LibraryTopbar section="THE ARCHIVE" page="GAME LOGS" />
+        <LibraryTopbar section="Play history" page="Game logs" />
         <section className="play-log-heading">
           <div>
             <Eyebrow>EVERY TABLE HAS A STORY</Eyebrow>
@@ -403,10 +404,10 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
             <span>{loading ? "Updating…" : `${statistics?.totalSessions ?? 0} matching sessions`}</span>
           </div>
           <div className="play-log-statistics__numbers">
-            <article><span>SESSIONS</span><strong>{statistics?.totalSessions ?? "—"}</strong></article>
-            <article><span>PLAYERS</span><strong>{statistics?.uniquePlayers ?? "—"}</strong></article>
-            <article><span>TABLE TIME</span><strong>{statistics ? durationLabel(statistics.totalDurationMinutes) : "—"}</strong></article>
-            <article><span>AVG. SESSION</span><strong>{statistics ? durationLabel(statistics.averageDurationMinutes) : "—"}</strong></article>
+            <article><span>Sessions</span><strong>{statistics?.totalSessions ?? "—"}</strong></article>
+            <article><span>Players</span><strong>{statistics?.uniquePlayers ?? "—"}</strong></article>
+            <article><span>Table time</span><strong>{statistics ? durationLabel(statistics.totalDurationMinutes) : "—"}</strong></article>
+            <article><span>Average session</span><strong>{statistics ? durationLabel(statistics.averageDurationMinutes) : "—"}</strong></article>
           </div>
           <div className="play-log-insights">
             <div className="play-log-insights__controls" role="group" aria-label="Explore insights by">
@@ -574,7 +575,7 @@ export function PlayLogs({ player, onLogout }: { player: AppPlayer; onLogout: ()
           </nav>
         </section>
 
-        <footer className="library-footer"><span>FILED WITH CARE</span></footer>
+        <footer className="library-footer"><span>Filed with care</span></footer>
       </main>
 
       {editorOpen && (

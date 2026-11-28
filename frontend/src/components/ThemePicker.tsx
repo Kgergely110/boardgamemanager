@@ -1,4 +1,5 @@
 import { ChangeEvent, useLayoutEffect, useState } from "react";
+import { Select } from "./ui";
 
 const STORAGE_KEY = "boardgamemanager:theme";
 const themes = [
@@ -38,11 +39,11 @@ export function ThemePicker() {
   return (
     <label className="theme-picker">
       <span className="theme-picker__label">Theme</span>
-      <select aria-label="Choose a color theme" onChange={changeTheme} value={theme}>
+      <Select aria-label="Choose a color theme" onChange={changeTheme} value={theme}>
         {themes.map((option) => (
           <option key={option.id} value={option.id}>{option.name}</option>
         ))}
-      </select>
+      </Select>
     </label>
   );
 }

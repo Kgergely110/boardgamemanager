@@ -1,4 +1,4 @@
-import { Button, Eyebrow, FeedbackMessage, Field } from "./ui";
+import { Button, Eyebrow, FeedbackMessage, Field, Input } from "./ui";
 import { FormEvent, useState } from "react";
 import { LibraryMark } from "./LibraryIcon";
 import { api, getErrorMessage } from "../lib/api";
@@ -50,18 +50,18 @@ export function AuthPanel({ setupRequired, onAuthenticated }: AuthPanelProps) {
       </div>
 
       <section className="entry-card">
-        <Eyebrow>THE BOARD GAME LIBRARY</Eyebrow>
-        <h1>{setupRequired ? "Make this place yours." : "Welcome back."}</h1>
+        <Eyebrow>Board game manager</Eyebrow>
+        <h1>{setupRequired ? "Create your account" : "Sign in"}</h1>
         <p className="entry-copy">
           {setupRequired
-            ? "Create the first keeper account to open your private collection."
-            : "Sign in to return to your shelves and stories."}
+            ? "Set up the first account to start organizing your collection."
+            : "Access your games, notes, and play history."}
         </p>
 
         <form className="entry-form" onSubmit={handleSubmit}>
           {setupRequired && (
-            <Field label="Your name">
-              <input
+            <Field label="Name">
+              <Input
                 autoComplete="name"
                 maxLength={80}
                 onChange={(event) => setFullName(event.target.value)}
@@ -71,7 +71,7 @@ export function AuthPanel({ setupRequired, onAuthenticated }: AuthPanelProps) {
             </Field>
           )}
           <Field label="Username">
-            <input
+            <Input
               autoComplete="username"
               maxLength={32}
               minLength={3}
@@ -81,8 +81,8 @@ export function AuthPanel({ setupRequired, onAuthenticated }: AuthPanelProps) {
               value={username}
             />
           </Field>
-          <Field label="Password" hint={setupRequired ? "Use at least 8 characters." : undefined}>
-            <input
+          <Field label="Password" hint={setupRequired ? "At least 8 characters." : undefined}>
+            <Input
               autoComplete={setupRequired ? "new-password" : "current-password"}
               maxLength={128}
               minLength={8}
@@ -97,18 +97,10 @@ export function AuthPanel({ setupRequired, onAuthenticated }: AuthPanelProps) {
           )}
           <Button className="button--wide" disabled={submitting} variant="primary">
             {submitting
-              ? "Unlocking..."
-              : setupRequired
-                ? "Open the library"
-                : "Enter the library"}
+              ? setupRequired ? "Creating account…" : "Signing in…"
+              : setupRequired ? "Create account" : "Sign in"}
           </Button>
         </form>
-
-        <div className="entry-footnote">
-          <span className="entry-footnote__rule" />
-          <span>Private to your home network</span>
-          <span className="entry-footnote__rule" />
-        </div>
       </section>
     </main>
   );

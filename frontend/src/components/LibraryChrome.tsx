@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import { DevelopmentUserMenu } from "./DevelopmentUserMenu";
 import { LibraryIcon, LibraryMark } from "./LibraryIcon";
@@ -15,15 +15,39 @@ interface LibraryRailProps {
 }
 
 export function LibraryRail({ player, onLogout, children }: LibraryRailProps) {
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
   return (
     <aside className="library-rail">
       <Link className="brand-mark" to="/" aria-label="Board Game Library home">
         <LibraryMark className="brand-mark__symbol" />
         <span className="brand-mark__name">The Game<br />Library</span>
       </Link>
-      <div className="rail-divider" />
-      {children}
-      {import.meta.env.DEV && player.isAdmin && <DevelopmentUserMenu player={player} />}
+      <Button
+        aria-label={mobileMenuOpen ? "Close navigation" : "Open navigation"}
+        aria-controls="library-rail-navigation"
+        aria-expanded={mobileMenuOpen}
+        className="library-rail__menu-toggle"
+        onClick={() => setMobileMenuOpen((open) => !open)}
+        type="button"
+      >
+        <svg aria-hidden="true" viewBox="0 0 24 24">
+          <path d={mobileMenuOpen ? "M6 6l12 12M18 6 6 18" : "M4 7h16M4 12h16M4 17h16"} />
+        </svg>
+      </Button>
+      <div
+        className={`library-rail__navigation${mobileMenuOpen ? " is-open" : ""}`}
+        id="library-rail-navigation"
+        onClick={(event) => {
+          if (event.target instanceof Element && event.target.closest("a")) {
+            setMobileMenuOpen(false);
+          }
+        }}
+      >
+        <div className="rail-divider" />
+        {children}
+        {import.meta.env.DEV && player.isAdmin && <DevelopmentUserMenu player={player} />}
+      </div>
       <div className="rail-bottom">
         <span className="rail-bottom__avatar">{player.fullName.slice(0, 1).toUpperCase()}</span>
         <span className="rail-bottom__identity">
@@ -37,7 +61,7 @@ export function LibraryRail({ player, onLogout, children }: LibraryRailProps) {
           title="Sign out"
           type="button"
         >
-          ↗
+          ↗<span className="logout-button__label">Sign out</span>
         </Button>
       </div>
     </aside>
@@ -102,7 +126,7 @@ export function LibraryNavigation({
     <>
       {collectionNavigation ?? (
         <>
-          <span className="rail-label">YOUR COLLECTION</span>
+          <span className="rail-label">Your collection</span>
           <nav className={collectionNavClassName} aria-label="Library navigation">
             <Link
               aria-current={activePage === "library" ? "page" : undefined}
@@ -116,13 +140,13 @@ export function LibraryNavigation({
         </>
       )}
       <div className="rail-utility">
-        <span className="rail-label">GAME NIGHT</span>
+        <span className="rail-label">Game night</span>
         {gameNightItems.map((item) => (
           <NavigationLink key={item.key} activePage={activePage} dossier={dossier} item={item} />
         ))}
       </div>
       <div className="rail-utility">
-        <span className="rail-label">REFERENCE</span>
+        <span className="rail-label">Reference</span>
         {referenceItems.map((item) => (
           <NavigationLink key={item.key} activePage={activePage} dossier={dossier} item={item} />
         ))}

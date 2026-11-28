@@ -1,4 +1,4 @@
-import { Button, Eyebrow, FeedbackMessage } from "../components/ui";
+import { Button, ConfirmationDialog, Eyebrow, FeedbackMessage } from "../components/ui";
 import { LibraryNavigation, LibraryRail, LibraryTopbar } from "../components/LibraryChrome";
 import { FormEvent, useEffect, useRef, useState } from "react";
 import { ExternalLink, Image as ImageIcon, Music2 } from "lucide-react";
@@ -42,6 +42,7 @@ export function Ambience({ player, onLogout }: { player: Player; onLogout: () =>
   const [games, setGames] = useState<Game[]>([]);
   const [tags, setTags] = useState<Tag[]>([]);
   const [draft, setDraft] = useState<AmbienceDraft | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<AmbienceSet | null>(null);
   const [gameSearch, setGameSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -154,14 +155,16 @@ export function Ambience({ player, onLogout }: { player: Player; onLogout: () =>
     }
   }
 
-  async function deleteSet(set: AmbienceSet) {
-    if (!window.confirm(`Delete “${set.name}” and its links?`)) return;
+  async function deleteSet() {
+    if (!pendingDelete) return;
+    const set = pendingDelete;
     setDeletingId(set.id);
     setError("");
     setNotice("");
     try {
       await api.delete(`/ambience/${set.id}`);
       setNotice(`“${set.name}” has been removed.`);
+      setPendingDelete(null);
       setRevision((value) => value + 1);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -182,7 +185,7 @@ export function Ambience({ player, onLogout }: { player: Player; onLogout: () =>
       </LibraryRail>
 
       <main className="library-main ambience-main">
-        <LibraryTopbar section="REFERENCE" page="AMBIENCE" />
+        <LibraryTopbar section="Reference" page="Atmosphere" />
 
         <section className="ambience-heading">
           <div>
@@ -385,7 +388,7 @@ export function Ambience({ player, onLogout }: { player: Player; onLogout: () =>
                     <div><Eyebrow>{set.links.length} {set.links.length === 1 ? "LINK" : "LINKS"}</Eyebrow><h3>{set.name}</h3></div>
                     <div className="ambience-card__actions">
                       <Button className="button button--quiet" onClick={() => editSet(set)} type="button">Edit</Button>
-                      <Button className="ambience-card__delete" disabled={deletingId === set.id} onClick={() => void deleteSet(set)} type="button">
+                      <Button className="ambience-card__delete" disabled={deletingId === set.id} onClick={() => setPendingDelete(set)} type="button">
                         {deletingId === set.id ? "Removing…" : "Delete"}
                       </Button>
                     </div>
@@ -423,6 +426,18 @@ export function Ambience({ player, onLogout }: { player: Player; onLogout: () =>
           )}
         </section>
       </main>
+      {pendingDelete && (
+        <ConfirmationDialog
+          busy={deletingId === pendingDelete.id}
+          confirmLabel={deletingId === pendingDelete.id ? "Deleting…" : "Delete setup"}
+          description={`Delete “${pendingDelete.name}” and all its links? This cannot be undone.`}
+          error={error}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() => void deleteSet()}
+          onDismissError={() => setError("")}
+          title="Delete ambience setup?"
+        />
+      )}
     </div>
   );
 }

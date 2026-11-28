@@ -59,7 +59,7 @@ export function DevelopmentUserMenu({ player }: DevelopmentUserMenuProps) {
 
   return (
     <div className="dev-user-menu">
-      <span className="rail-label">DEVELOPMENT</span>
+      <span className="rail-label">Development</span>
       <Button
         className="shelf-nav__item dev-user-menu__trigger"
         onClick={() => setIsOpen(true)}

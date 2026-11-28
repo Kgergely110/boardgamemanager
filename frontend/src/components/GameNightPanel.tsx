@@ -226,7 +226,7 @@ export function GameNightPanel({ onActiveNightChange }: { onActiveNightChange: (
         <>
           <div className="game-night-panel__meta">
             <span className={selectedNight.endedAt ? "game-night-panel__status is-closed" : "game-night-panel__status"}>
-              {selectedNight.endedAt ? "CLOSED" : "IN PROGRESS"}
+              {selectedNight.endedAt ? "Closed" : "In progress"}
             </span>
             <strong>{nightDate(selectedNight.startedAt)}</strong>
             <span>{selectedNight.gameCount} {selectedNight.gameCount === 1 ? "game finished" : "games finished"}</span>

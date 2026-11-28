@@ -8,6 +8,7 @@ import { LibraryIcon } from "../components/LibraryIcon";
 import { OngoingGamesList } from "../components/OngoingGamesList";
 import { api, getErrorMessage } from "../lib/api";
 import { matchesGameSearch } from "../lib/gameSearch";
+import { createLocalId } from "../lib/localId";
 import { revealAndFocus } from "../lib/navigation";
 import { Game, Player as AppPlayer, Tag } from "../types";
 
@@ -218,7 +219,7 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
       }
       setTableParticipants((current) => [
         ...current,
-        { id: crypto.randomUUID(), kind: "app", playerId: appPlayer.id, name: appPlayer.fullName },
+        { id: createLocalId(), kind: "app", playerId: appPlayer.id, name: appPlayer.fullName },
       ]);
       setSelectedAppPlayerId("");
       return;
@@ -235,7 +236,7 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
     }
     setTableParticipants((current) => [
       ...current,
-      { id: crypto.randomUUID(), kind: "guest", playerId: null, name },
+      { id: createLocalId(), kind: "guest", playerId: null, name },
     ]);
     setGuestPlayerName("");
   }
@@ -302,7 +303,7 @@ export function LetsPlay({ player, onLogout }: { player: AppPlayer; onLogout: ()
       </LibraryRail>
 
       <main className="library-main lets-play-main">
-        <LibraryTopbar section="GAME NIGHT" page="LET’S PLAY" />
+        <LibraryTopbar section="Game night" page="Choose a game" />
 
         <section className="lets-play-heading">
           <div>

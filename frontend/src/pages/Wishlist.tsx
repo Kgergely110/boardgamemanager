@@ -1,4 +1,4 @@
-import { Button, Eyebrow, FeedbackMessage } from "../components/ui";
+import { Button, ConfirmationDialog, Eyebrow, FeedbackMessage } from "../components/ui";
 import { LibraryNavigation, LibraryRail, LibraryTopbar } from "../components/LibraryChrome";
 import { Bookmark, Flame, Heart, Sparkles } from "lucide-react";
 import { FormEvent, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -170,6 +170,8 @@ export function Wishlist({ player, onLogout }: { player: Player; onLogout: () =>
   const [draft, setDraft] = useState<WishlistDraft | null>(null);
   const [deletingItem, setDeletingItem] = useState<WishlistItem | null>(null);
   const [deleteSaving, setDeleteSaving] = useState(false);
+  const [archivingItem, setArchivingItem] = useState<WishlistItem | null>(null);
+  const [archiveSaving, setArchiveSaving] = useState(false);
   const [acquiringItem, setAcquiringItem] = useState<WishlistItem | null>(null);
   const [acquireShelfId, setAcquireShelfId] = useState("");
   const [acquireShelfNumber, setAcquireShelfNumber] = useState("1");
@@ -373,14 +375,20 @@ export function Wishlist({ player, onLogout }: { player: Player; onLogout: () =>
     }
   }
 
-  async function archiveItem(item: WishlistItem) {
+  async function archiveItem() {
+    if (!archivingItem) return;
+    const item = archivingItem;
+    setArchiveSaving(true);
     setError("");
     try {
       await api.patch(`/wishlist/${item.id}`, { status: "ARCHIVED" });
       setNotice(`“${item.title}” has been moved to the archive.`);
       setRevision((value) => value + 1);
+      setArchivingItem(null);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
+    } finally {
+      setArchiveSaving(false);
     }
   }
 
@@ -449,7 +457,7 @@ export function Wishlist({ player, onLogout }: { player: Player; onLogout: () =>
       </LibraryRail>
 
       <main className="library-main wishlist-main">
-        <LibraryTopbar section="GAME NIGHT" page="WISHLIST" />
+        <LibraryTopbar section="Game night" page="Wishlist" />
         <section className="wishlist-heading">
           <div>
             <Eyebrow>THE SHARED WANT LIST</Eyebrow>
@@ -646,7 +654,7 @@ export function Wishlist({ player, onLogout }: { player: Player; onLogout: () =>
                     )}
                     <Button className="wishlist-text-button" onClick={() => openEditForm(item)}>Edit</Button>
                     {item.status !== "ACQUIRED" && item.status !== "ARCHIVED" && (
-                      <Button className="wishlist-text-button wishlist-text-button--archive" onClick={() => void archiveItem(item)}>Archive</Button>
+                      <Button className="wishlist-text-button wishlist-text-button--archive" onClick={() => setArchivingItem(item)}>Archive</Button>
                     )}
                     {item.status === "ARCHIVED" && (
                       <Button className="wishlist-text-button wishlist-text-button--archive" onClick={() => setDeletingItem(item)}>Delete permanently</Button>
@@ -733,6 +741,20 @@ export function Wishlist({ player, onLogout }: { player: Player; onLogout: () =>
             </div>
           </form>
         </div>
+      )}
+
+      {archivingItem && (
+        <ConfirmationDialog
+          busy={archiveSaving}
+          confirmLabel={archiveSaving ? "Archiving…" : "Archive game"}
+          destructive={false}
+          description={`Move “${archivingItem.title}” to the archive? It will remain available when you filter for archived games.`}
+          error={error}
+          onCancel={() => setArchivingItem(null)}
+          onConfirm={() => void archiveItem()}
+          onDismissError={() => setError("")}
+          title="Archive this game?"
+        />
       )}
 
       {deletingItem && (
