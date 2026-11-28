@@ -192,7 +192,7 @@ export function OngoingGame({ player, onLogout }: { player: AppPlayer; onLogout:
       </LibraryRail>
 
       <main className="library-main ongoing-game-main">
-        <LibraryTopbar section="GAME NIGHT" page="IN PROGRESS" />
+        <LibraryTopbar section="Game night" page="In progress" />
 
         <Link className="ongoing-game-back" to="/lets-play">← All game choices</Link>
         {error && (

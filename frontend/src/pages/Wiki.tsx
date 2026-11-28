@@ -268,7 +268,7 @@ export function Wiki({ player, onLogout }: WikiProps) {
       </LibraryRail>
 
       <main className="library-main wiki-main">
-        <LibraryTopbar section="REFERENCE" page="THE FIELD GUIDE" />
+        <LibraryTopbar section="Reference" page="Game guide" />
 
         <section className="wiki-heading">
           <div>
@@ -307,7 +307,7 @@ export function Wiki({ player, onLogout }: WikiProps) {
               placeholder="Search concepts, strategies, tags, or games…"
               value={query}
             />
-            <kbd>SEARCH</kbd>
+            <kbd>Search</kbd>
           </label>
         </section>
 
@@ -398,7 +398,7 @@ export function Wiki({ player, onLogout }: WikiProps) {
                           </div>
                           {entry.tags.length > 0 && (
                             <div className="wiki-entry__related">
-                              <span className="wiki-entry__related-label">RELATED TAGS</span>
+                              <span className="wiki-entry__related-label">Related tags</span>
                               <div>
                                 {entry.tags.map((tag) => (
                                   <Button
@@ -415,7 +415,7 @@ export function Wiki({ player, onLogout }: WikiProps) {
                           )}
                           {entry.games.length > 0 && (
                             <div className="wiki-entry__related">
-                              <span className="wiki-entry__related-label">EXAMPLES FROM THE LIBRARY</span>
+                              <span className="wiki-entry__related-label">Examples from the library</span>
                               <div className="wiki-game-links">
                                 {entry.games.map((game) => (
                                   <Link key={game.id} to={`/games/${game.id}`}>
@@ -553,7 +553,7 @@ export function Wiki({ player, onLogout }: WikiProps) {
 
             <section className="wiki-markdown-editor">
               <div className="wiki-markdown-editor__heading">
-                <span className="field-label">MARKDOWN</span>
+                <span className="field-label">Markdown</span>
                 <div>
                   <Button
                     aria-pressed={!previewing}

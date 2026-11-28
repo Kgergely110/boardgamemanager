@@ -32,7 +32,7 @@ export function CollectionPulse({ data, loading, error, onDismiss, onRetry }: Co
       >
         <summary className="collection-pulse__heading">
           <div>
-            <Eyebrow><Activity aria-hidden="true" /> COLLECTION PULSE</Eyebrow>
+            <Eyebrow><Activity aria-hidden="true" /> Collection pulse</Eyebrow>
             <h2 id="collection-pulse-title">A little life in the stacks</h2>
             <p>
               {data
@@ -41,7 +41,7 @@ export function CollectionPulse({ data, loading, error, onDismiss, onRetry }: Co
             </p>
           </div>
           <span className="collection-pulse__scope">
-            ALL SHELVES <ChevronDown aria-hidden="true" />
+            All shelves <ChevronDown aria-hidden="true" />
           </span>
         </summary>
         {loading && !data ? (
@@ -70,7 +70,7 @@ export function CollectionPulse({ data, loading, error, onDismiss, onRetry }: Co
             <section className="collection-pulse__list" aria-labelledby="collection-pulse-recent-title">
               <header>
                 <h3 id="collection-pulse-recent-title"><Activity aria-hidden="true" /> Most played lately</h3>
-                <span>90 DAYS</span>
+                <span>90 days</span>
               </header>
               {data.recentGames.length ? (
                 <ul>
@@ -89,7 +89,7 @@ export function CollectionPulse({ data, loading, error, onDismiss, onRetry }: Co
             <section className="collection-pulse__list" aria-labelledby="collection-pulse-quiet-title">
               <header>
                 <h3 id="collection-pulse-quiet-title"><Clock3 aria-hidden="true" /> Quiet corners</h3>
-                <span>{data.restingGameCount + data.neverPlayed} TITLES</span>
+                <span>{data.restingGameCount + data.neverPlayed} titles</span>
               </header>
               {data.neverPlayedGames.length > 0 && (
                 <div className="collection-pulse__quiet-group">
@@ -124,7 +124,7 @@ export function CollectionPulse({ data, loading, error, onDismiss, onRetry }: Co
             <section className="collection-pulse__list collection-pulse__tags" aria-labelledby="collection-pulse-tags-title">
               <header>
                 <h3 id="collection-pulse-tags-title"><Sparkles aria-hidden="true" /> Collection character</h3>
-                <span>BY TAG</span>
+                <span>By tag</span>
               </header>
               {data.popularTags.length ? (
                 <ul>

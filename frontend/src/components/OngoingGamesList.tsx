@@ -63,7 +63,7 @@ export function OngoingGamesList() {
         {games.map((game) => (
           <Link className="ongoing-game-card" key={game.id} to={`/lets-play/ongoing/${game.id}`}>
             <span className={game.pausedAt ? "ongoing-game-card__status is-paused" : "ongoing-game-card__status"}>
-              {game.pausedAt ? "PAUSED" : "IN PROGRESS"}
+              {game.pausedAt ? "Paused" : "In progress"}
             </span>
             <span className="ongoing-game-card__details">
               <strong>{game.game?.name ?? game.guestGame?.name ?? "Unknown game"}</strong>

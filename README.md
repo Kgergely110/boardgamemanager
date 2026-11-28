@@ -22,7 +22,7 @@ A self-hosted board-game library for organizing games, their physical locations,
 | Area | Technology |
 | --- | --- |
 | Frontend | React 18, TypeScript, Vite, React Router, Axios |
-| UI | Custom CSS, Framer Motion, Lucide icons, React Markdown, Lora and Source Sans 3 fonts |
+| UI | Custom CSS, Framer Motion, Lucide icons, React Markdown, system sans-serif and Georgia |
 | PDF certificate | jsPDF |
 | Backend | Node.js 20, Express 4, TypeScript |
 | Data and validation | PostgreSQL 16, Prisma 5, Zod |

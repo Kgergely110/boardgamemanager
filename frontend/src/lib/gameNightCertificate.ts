@@ -18,7 +18,6 @@ function roundedRect(
 }
 
 export async function downloadGameNightCertificate(details: CertificateDetails): Promise<void> {
-  await document.fonts.load('400 76px "Lora Variable"');
   const canvas = document.createElement("canvas");
   canvas.width = 1800;
   canvas.height = 1273;
@@ -43,7 +42,7 @@ export async function downloadGameNightCertificate(details: CertificateDetails):
   const centerX = width / 2;
   context.textAlign = "center";
   context.fillStyle = "#50614c";
-  context.font = '600 27px "Source Sans 3 Variable", sans-serif';
+  context.font = '600 27px system-ui, sans-serif';
   context.letterSpacing = "8px";
   context.fillText("THE EVENING’S CHRONICLE", centerX, 220);
   context.letterSpacing = "0px";
@@ -60,24 +59,24 @@ export async function downloadGameNightCertificate(details: CertificateDetails):
   context.arc(centerX, 365, 58, 0, Math.PI * 2);
   context.fill();
   context.fillStyle = "#fff8e6";
-  context.font = '400 66px "Lora Variable", Georgia, serif';
+  context.font = '400 66px Georgia, "Times New Roman", serif';
   context.fillText("♛", centerX, 388);
 
   context.fillStyle = "#6b5330";
-  context.font = '400 38px "Lora Variable", Georgia, serif';
+  context.font = '400 38px Georgia, "Times New Roman", serif';
   context.fillText("This certificate is graciously awarded to", centerX, 510);
 
   let nameFontSize = 100;
-  context.font = `400 ${nameFontSize}px "Lora Variable", Georgia, serif`;
+  context.font = `400 ${nameFontSize}px Georgia, "Times New Roman", serif`;
   while (context.measureText(details.playerName).width > width - 300 && nameFontSize > 50) {
     nameFontSize -= 2;
-    context.font = `400 ${nameFontSize}px "Lora Variable", Georgia, serif`;
+    context.font = `400 ${nameFontSize}px Georgia, "Times New Roman", serif`;
   }
   context.fillStyle = "#293d30";
   context.fillText(details.playerName, centerX, 650, width - 260);
 
   context.fillStyle = "#756b59";
-  context.font = '400 31px "Lora Variable", Georgia, serif';
+  context.font = '400 31px Georgia, "Times New Roman", serif';
   context.fillText("for reigning supreme at the table", centerX, 720);
 
   context.strokeStyle = "#dfd4bd";
@@ -87,14 +86,14 @@ export async function downloadGameNightCertificate(details: CertificateDetails):
   context.stroke();
 
   context.fillStyle = "#50614c";
-  context.font = '600 27px "Source Sans 3 Variable", sans-serif';
+  context.font = '600 27px system-ui, sans-serif';
   context.fillText(
     `${details.wins} ${details.wins === 1 ? "VICTORY" : "VICTORIES"}  ·  ${details.gamesPlayed} ${details.gamesPlayed === 1 ? "GAME" : "GAMES"} PLAYED`,
     centerX,
     850,
   );
   context.fillStyle = "#756b59";
-  context.font = '400 29px "Lora Variable", Georgia, serif';
+  context.font = '400 29px Georgia, "Times New Roman", serif';
   context.fillText(
     new Date(details.date).toLocaleDateString(undefined, { dateStyle: "long" }),
     centerX,
@@ -107,7 +106,7 @@ export async function downloadGameNightCertificate(details: CertificateDetails):
   context.lineTo(centerX + 180, 1030);
   context.stroke();
   context.fillStyle = "#7c715d";
-  context.font = '600 20px "Source Sans 3 Variable", sans-serif';
+  context.font = '600 20px system-ui, sans-serif';
   context.letterSpacing = "4px";
   context.fillText("KEEPER OF THE TABLE", centerX, 1070);
   context.letterSpacing = "0px";

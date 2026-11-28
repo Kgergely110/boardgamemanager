@@ -1,4 +1,4 @@
-import { Button, ButtonLink, Eyebrow, FeedbackMessage } from "../components/ui";
+import { Button, ButtonLink, ConfirmationDialog, Eyebrow, FeedbackMessage } from "../components/ui";
 import { LibraryNavigation, LibraryRail, LibraryTopbar } from "../components/LibraryChrome";
 import { FormEvent, useEffect, useState } from "react";
 import ReactMarkdown from "react-markdown";
@@ -23,6 +23,10 @@ interface GameDetailsProps {
 }
 
 type DocumentEditor = { mode: "new" } | { mode: "edit"; document: GameDocument };
+type PendingRemoval =
+  | { kind: "rating" }
+  | { kind: "award"; award: GameAward }
+  | { kind: "tag"; tag: Tag };
 
 interface RatingDraft {
   overall: number;
@@ -123,6 +127,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
   const [documentNotice, setDocumentNotice] = useState("");
   const [openDocumentIds, setOpenDocumentIds] = useState<Set<string>>(() => new Set());
   const [pendingDocumentDelete, setPendingDocumentDelete] = useState<GameDocument | null>(null);
+  const [pendingRemoval, setPendingRemoval] = useState<PendingRemoval | null>(null);
   const [playLogs, setPlayLogs] = useState<PlayLog[]>([]);
   const [playLogsPage, setPlayLogsPage] = useState(1);
   const [playLogsTotal, setPlayLogsTotal] = useState(0);
@@ -328,8 +333,8 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
     }
   }
 
-  async function removeTag(tagId: string) {
-    if (!gameId) return;
+  async function removeTag(tagId: string): Promise<boolean> {
+    if (!gameId) return false;
     setTagBusy(true);
     setTagError("");
     setTagNotice("");
@@ -337,8 +342,10 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
       const { data } = await api.delete<{ data: Tag[] }>(`/games/${gameId}/tags/${tagId}`);
       setGame((current) => current ? { ...current, tags: data.data } : current);
       setTagNotice("The tag has been removed from this game.");
+      return true;
     } catch (requestError) {
       setTagError(getErrorMessage(requestError));
+      return false;
     } finally {
       setTagBusy(false);
     }
@@ -502,8 +509,8 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
     }
   }
 
-  async function deleteRating() {
-    if (!gameId || !gameReviews?.myRating) return;
+  async function deleteRating(): Promise<boolean> {
+    if (!gameId || !gameReviews?.myRating) return false;
     setRatingBusy(true);
     setReviewsError("");
     setReviewsNotice("");
@@ -512,8 +519,10 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
       setReviewsNotice("Your rating has been removed.");
       setRatingDraft(emptyRatingDraft());
       setReviewsRevision((value) => value + 1);
+      return true;
     } catch (requestError) {
       setReviewsError(getErrorMessage(requestError));
+      return false;
     } finally {
       setRatingBusy(false);
     }
@@ -541,8 +550,8 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
     }
   }
 
-  async function deleteAward(award: GameAward) {
-    if (!gameId) return;
+  async function deleteAward(award: GameAward): Promise<boolean> {
+    if (!gameId) return false;
     setAwardBusyId(award.id);
     setReviewsError("");
     setReviewsNotice("");
@@ -550,11 +559,24 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
       await api.delete(`/games/${gameId}/awards/${award.id}`);
       setReviewsNotice(`“${award.name}” removed from the dossier.`);
       setReviewsRevision((value) => value + 1);
+      return true;
     } catch (requestError) {
       setReviewsError(getErrorMessage(requestError));
+      return false;
     } finally {
       setAwardBusyId("");
     }
+  }
+
+  async function confirmRemoval() {
+    if (!pendingRemoval) return;
+    const confirmed = pendingRemoval;
+    const removed = confirmed.kind === "rating"
+      ? await deleteRating()
+      : confirmed.kind === "award"
+        ? await deleteAward(confirmed.award)
+        : await removeTag(confirmed.tag.id);
+    if (removed) setPendingRemoval(null);
   }
 
   function renderDocumentEditor(lockedTitle: boolean) {
@@ -613,7 +635,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
       </LibraryRail>
 
       <main className="library-main dossier-main">
-        <LibraryTopbar section="COLLECTION" page="GAME DOSSIER" />
+        <LibraryTopbar section="My collection" page="Game details" />
 
         {loading ? (
           <div className="empty-state dossier-loading" role="status" aria-live="polite"><p>Opening the game dossier…</p></div>
@@ -643,7 +665,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
               <div className={`dossier-cover ${game.imageUrl ? "dossier-cover--image" : ""}`}>
                 {game.imageUrl
                   ? <img src={game.imageUrl} alt={`${game.name} cover`} />
-                  : <div className="dossier-cover__placeholder"><span>THE GAME LIBRARY</span><strong>{game.name}</strong><LibraryIcon name="play" className="dossier-cover__symbol" /> </div>}
+                  : <div className="dossier-cover__placeholder"><span>The game library</span><strong>{game.name}</strong><LibraryIcon name="play" className="dossier-cover__symbol" /> </div>}
               </div>
               <div className="dossier-hero__copy">
                 <Eyebrow>GAME DOSSIER · {game.releaseYear ?? "YEAR UNKNOWN"}</Eyebrow>
@@ -859,7 +881,12 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                         </label>
                         <div className="game-rating-form__footer">
                           {gameReviews.myRating && (
-                            <Button className="button button--quiet" disabled={ratingBusy} onClick={() => void deleteRating()} type="button">
+                            <Button
+                              className="button button--quiet"
+                              disabled={ratingBusy}
+                              onClick={() => setPendingRemoval({ kind: "rating" })}
+                              type="button"
+                            >
                               Remove my rating
                             </Button>
                           )}
@@ -888,7 +915,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                               <Button
                                 aria-label={`Remove ${award.name} award`}
                                 disabled={awardBusyId !== ""}
-                                onClick={() => void deleteAward(award)}
+                                onClick={() => setPendingRemoval({ kind: "award", award })}
                                 type="button"
                               >
                                 {awardBusyId === award.id ? "…" : "×"}
@@ -993,7 +1020,7 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
                     <Button
                       aria-label={`Remove ${tag.name} from ${game.name}`}
                       disabled={tagBusy}
-                      onClick={() => removeTag(tag.id)}
+                      onClick={() => setPendingRemoval({ kind: "tag", tag })}
                       type="button"
                     >
                       ×
@@ -1233,10 +1260,45 @@ export function GameDetails({ player, onLogout }: GameDetailsProps) {
               )}
             </section>
 
-            <footer className="library-footer"><span>FILED WITH CARE</span></footer>
+            <footer className="library-footer"><span>Filed with care</span></footer>
           </>
         )}
       </main>
+      {pendingRemoval && (
+        <ConfirmationDialog
+          busy={pendingRemoval.kind === "rating"
+            ? ratingBusy
+            : pendingRemoval.kind === "award"
+              ? awardBusyId !== ""
+              : tagBusy}
+          confirmLabel={pendingRemoval.kind === "tag"
+            ? "Remove tag"
+            : pendingRemoval.kind === "award"
+              ? "Remove award"
+              : "Remove rating"}
+          description={pendingRemoval.kind === "tag"
+            ? `Remove “${pendingRemoval.tag.name}” from this game?`
+            : pendingRemoval.kind === "award"
+              ? `Remove “${pendingRemoval.award.name}” from this game?`
+              : "Remove your rating and comment from this game?"}
+          error={pendingRemoval.kind === "tag" ? tagError : reviewsError}
+          onCancel={() => {
+            setPendingRemoval(null);
+            if (pendingRemoval.kind === "tag") setTagError("");
+            else setReviewsError("");
+          }}
+          onConfirm={() => void confirmRemoval()}
+          onDismissError={() => {
+            if (pendingRemoval.kind === "tag") setTagError("");
+            else setReviewsError("");
+          }}
+          title={pendingRemoval.kind === "tag"
+            ? "Remove tag?"
+            : pendingRemoval.kind === "award"
+              ? "Remove award?"
+              : "Remove rating?"}
+        />
+      )}
     </div>
   );
 }

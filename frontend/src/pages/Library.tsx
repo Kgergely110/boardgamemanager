@@ -477,7 +477,7 @@ export function Library({ player, onLogout }: LibraryProps) {
           activePage="library"
           collectionNavigation={
             <>
-              <span className="rail-label">YOUR COLLECTION</span>
+              <span className="rail-label">Your collection</span>
                       <nav className="shelf-nav" aria-label="Browse containers">
                         <div className="shelf-nav__branch-wrap">
                           <div className="shelf-nav__branch">
@@ -540,12 +540,12 @@ export function Library({ player, onLogout }: LibraryProps) {
       </LibraryRail>
 
       <main className="library-main">
-        <LibraryTopbar section="COLLECTION" page="THE STACKS" />
+        <LibraryTopbar section="My collection" page="Games" />
 
         <section className="library-heading">
           <div>
             <Eyebrow>A PLACE FOR EVERY ADVENTURE</Eyebrow>
-            <h1>{selectedShelf ? selectedShelf.name : "The Stacks"}</h1>
+            <h1>{selectedShelf ? selectedShelf.name : "My games"}</h1>
             <p>
               {selectedShelf
                 ? `${shelfTypes[selectedShelf.type] ?? selectedShelf.type} · ${selectedShelf.shelfCount} ${selectedShelf.shelfCount === 1 ? "level" : "levels"}`
@@ -557,13 +557,15 @@ export function Library({ player, onLogout }: LibraryProps) {
               <div className="container-manage">
                 <Button
                   aria-expanded={containerMenuOpen}
+                  aria-controls="container-actions-menu"
+                  aria-label={`Container options for ${selectedShelf.name}`}
                   className="button button--quiet"
                   onClick={() => setContainerMenuOpen((open) => !open)}
                 >
-                  <span aria-hidden="true">⋯</span> Manage
+                  Container options
                 </Button>
                 {containerMenuOpen && (
-                  <div className="container-manage__menu">
+                  <div aria-label="Container actions" className="container-manage__menu" id="container-actions-menu" role="group">
                     <Button
                       onClick={() => {
                         openEditShelf(selectedShelf);
@@ -593,7 +595,7 @@ export function Library({ player, onLogout }: LibraryProps) {
             >
               {arrangingGames ? "Finish arranging" : "Arrange games"}
             </Button>
-            <Button className="button button--quiet" onClick={openNewShelf}>＋ Container</Button>
+            <Button className="button button--quiet" onClick={openNewShelf}>Add container</Button>
             <Button
               className="button button--primary"
               disabled={shelves.length === 0}
@@ -602,6 +604,34 @@ export function Library({ player, onLogout }: LibraryProps) {
               <span>＋</span> Add a game
             </Button>
           </div>
+        </section>
+
+        <section aria-label="Library search" className="collection-tools" role="search">
+          <div className="collection-count">
+            <span className="collection-count__number">{loadingGames ? "—" : query.trim() ? matchingGameCount : games.length}</span>
+            <span>
+              {query.trim()
+                ? matchingGameCount === 1 ? "matching game" : "matching games"
+                : games.length === 1 ? "game in view" : "games in view"}
+            </span>
+          </div>
+          <label className="search-box">
+            <svg aria-hidden="true" className="search-box__icon" viewBox="0 0 24 24">
+              <circle cx="10.5" cy="10.5" r="6.5" />
+              <path d="m15.5 15.5 5 5" />
+            </svg>
+            <input
+              aria-label="Search games or publishers"
+              list="game-tag-search-suggestions"
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Find a game, publisher, or #tag..."
+              value={query}
+            />
+            <kbd>Search</kbd>
+          </label>
+          <datalist id="game-tag-search-suggestions">
+            {tags.map((tag) => <option key={tag.id} value={`#${tag.name}`} />)}
+          </datalist>
         </section>
 
         {error && (
@@ -736,34 +766,6 @@ export function Library({ player, onLogout }: LibraryProps) {
           </p>
         )}
 
-        <section className="collection-tools">
-          <div className="collection-count">
-            <span className="collection-count__number">{loadingGames ? "—" : query.trim() ? matchingGameCount : games.length}</span>
-            <span>
-              {query.trim()
-                ? matchingGameCount === 1 ? "matching game" : "matching games"
-                : games.length === 1 ? "game in view" : "games in view"}
-            </span>
-          </div>
-          <label className="search-box">
-            <svg aria-hidden="true" className="search-box__icon" viewBox="0 0 24 24">
-              <circle cx="10.5" cy="10.5" r="6.5" />
-              <path d="m15.5 15.5 5 5" />
-            </svg>
-            <input
-              aria-label="Search games or publishers"
-              list="game-tag-search-suggestions"
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Find a game, publisher, or #tag..."
-              value={query}
-            />
-            <kbd>SEARCH</kbd>
-          </label>
-          <datalist id="game-tag-search-suggestions">
-            {tags.map((tag) => <option key={tag.id} value={`#${tag.name}`} />)}
-          </datalist>
-        </section>
-
         <section className="game-section" aria-live="polite">
           <div className="section-title">
             <div>
@@ -813,7 +815,7 @@ export function Library({ player, onLogout }: LibraryProps) {
           )}
         </section>
 
-        <footer className="library-footer"><span>CATALOGUED WITH CARE</span></footer>
+        <footer className="library-footer"><span>Catalogued with care</span></footer>
       </main>
       {pendingDelete && (
         <div className="sweet-alert-backdrop">

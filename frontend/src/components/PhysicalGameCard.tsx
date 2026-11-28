@@ -123,7 +123,7 @@ export function PhysicalGameCard({
             <strong><HighlightedText text={game.name} query={query} /></strong>
           </div>
           {query && game.tags.some((tag) => matchesTagSearch(tag.name, query)) && (
-            <span className="physical-game__match">MATCHING TAG</span>
+            <span className="physical-game__match">Matching tag</span>
           )}
         </Button>
       </article>

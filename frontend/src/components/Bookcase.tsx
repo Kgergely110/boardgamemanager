@@ -212,13 +212,13 @@ export function Bookcase({
     <section className={`bookcase ${arranging ? "bookcase--arranging" : ""}`} aria-label={`${shelf.name} bookcase`}>
       <header className="bookcase__header">
         <div className="bookcase__identity">
-          <Eyebrow>{shelf.type.toUpperCase()} · CONTAINER</Eyebrow>
+          <Eyebrow>{`${shelf.type.toLocaleLowerCase().replace(/^./, (letter) => letter.toLocaleUpperCase())} · container`}</Eyebrow>
           <h3>{shelf.name}</h3>
           {shelf.description?.trim() && (
             <p className="bookcase__description">{shelf.description}</p>
           )}
         </div>
-        <span className="bookcase__volume">{games.length} {games.length === 1 ? "GAME" : "GAMES"}</span>
+        <span className="bookcase__volume">{games.length} {games.length === 1 ? "game" : "games"}</span>
       </header>
       <div
         className={`bookcase__frame ${shelf.cabinetColor ? "bookcase__frame--customized" : ""}`}
@@ -339,7 +339,7 @@ export function Bookcase({
                 className={`bookcase-level ${levelStateClass} ${arranging ? "bookcase-level--arranging" : ""}`}
                 key={level}
               >
-                <span className="bookcase-level__number">LEVEL {level}</span>
+                <span className="bookcase-level__number">Level {level}</span>
                 <div className="bookcase-level__contents">
                   {stackGroups.length ? (
                     <>
